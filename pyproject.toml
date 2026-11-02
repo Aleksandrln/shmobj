@@ -1,0 +1,22 @@
+[build-system]
+requires = ["maturin>=1.16,<2"]
+build-backend = "maturin"
+
+[project]
+name = "shmobj"
+requires-python = ">=3.11"
+dynamic = ["version"]
+description = "Read-only dict/list/scalars in shared memory without deserialization"
+classifiers = ["Programming Language :: Rust", "Programming Language :: Python :: Implementation :: CPython"]
+
+[project.optional-dependencies]
+test = ["pytest", "hypothesis", "pytest-benchmark", "xxhash"]
+
+[tool.maturin]
+manifest-path = "crates/shmobj-py/Cargo.toml"
+python-source = "python"
+module-name = "shmobj._core"
+features = ["pyo3/extension-module"]
+
+[tool.pytest.ini_options]
+testpaths = ["tests"]

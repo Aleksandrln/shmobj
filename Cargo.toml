@@ -1,0 +1,16 @@
+[workspace]
+resolver = "2"
+members = ["crates/shmobj-core", "crates/shmobj-py"]
+
+[workspace.package]
+edition = "2021"
+license = "MIT OR Apache-2.0"
+
+[workspace.dependencies]
+pyo3 = { version = "0.30", features = ["extension-module", "abi3-py311"] }
+xxhash-rust = { version = "0.8", features = ["xxh3"] }
+proptest = "1"
+
+[profile.release]
+lto = "fat"
+codegen-units = 1
