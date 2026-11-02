@@ -1,1 +1,9 @@
 .idea
+/target
+/.venv
+/dist
+__pycache__/
+*.so
+*.pyd
+.pytest_cache/
+.hypothesis/
