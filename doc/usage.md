@@ -34,7 +34,15 @@ pip install dist/shmobj-*.whl
 ```
 
 Колесо, собранное локально на Linux, получает тег по glibc этой машины (например,
-`manylinux_2_34`) и не ставится на системы со старой glibc. Переносимые колёса для всех платформ
+`manylinux_2_34`) и не ставится на системы со старой glibc. Переносимое Linux-колесо (glibc ≥ 2.17)
+локально — через zig, без Docker:
+
+```bash
+pip install maturin ziglang
+maturin build --release --zig --compatibility manylinux2014 --out dist
+```
+
+Переносимые колёса для всех платформ
 собирает задача `wheels` в CI (`PyO3/maturin-action`, Linux — в manylinux-контейнере,
 x86_64/aarch64, Windows x64, macOS arm64); результат — артефакты `wheel-*` прогона.
 
