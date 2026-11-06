@@ -36,6 +36,7 @@ shmobj/
 ├── python/shmobj/
 │   ├── __init__.py               # реэкспорт _core, create/attach, регистрация в abc
 │   ├── _shm.py                   # жизненный цикл SharedMemory, resource_tracker
+│   ├── channel.py, channel.pyi   # канал снимков: memfd + SCM_RIGHTS (Linux)
 │   ├── __init__.pyi              # из skeleton/
 │   └── py.typed
 ├── reference/                    # копия эталона из ТЗ (оракул для тестов)
@@ -53,8 +54,9 @@ shmobj/
   = deny в `ro/` и `format/`).
 - **shmobj-py** — тонкий слой: превращает `PyAny` в вызовы `Writer`, а слоты в `PyObject`.
   Здесь сосредоточен весь `unsafe`: получение `&[u8]` из `PyBuffer` и быстрое создание `str`.
-- **python/shmobj** — `SharedMemory` и платформенные детали жизненного цикла.
-  Это проще и надёжнее сделать на Python, где уже есть `SharedMemory`.
+- **python/shmobj** — `SharedMemory`, канал снимков и платформенные детали жизненного цикла.
+  Это проще и надёжнее сделать на Python, где уже есть `SharedMemory`, `mmap`, `memfd_create`
+  и `socket.send_fds`; в Rust для этого понадобился бы `unsafe` или зависимость вроде `rustix`.
 
 ## 3. Ключевые решения
 

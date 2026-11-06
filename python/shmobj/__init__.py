@@ -4,7 +4,7 @@ from __future__ import annotations
 from collections.abc import Mapping, Sequence
 from typing import Any
 
-from . import _shm
+from . import _shm, channel
 from ._core import (
     FORMAT_VERSION,
     FormatError,
@@ -28,6 +28,7 @@ __all__ = [
     "Segment",
     "SegmentClosedError",
     "attach",
+    "channel",
     "create",
     "dumps",
     "loads",

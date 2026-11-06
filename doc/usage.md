@@ -7,6 +7,7 @@
 ```
 shmobj/__init__.py       # Python-обёртка: реэкспорт, create/attach
 shmobj/_shm.py           # SharedMemory, resource_tracker
+shmobj/channel.py        # канал снимков (Linux)
 shmobj/_core.abi3.so     # скомпилированные shmobj-core + shmobj-py (на Windows — _core.pyd)
 shmobj/__init__.pyi, py.typed
 ```
@@ -80,6 +81,32 @@ if __name__ == "__main__":
   после него `FormatError` при чтении невозможен.
 - Допустимые типы: `dict`, `list`, `tuple` (читается как список), `None`, `bool`, `int` (любой
   длины), `float`, `str`, `bytes`; ключи — скаляры. Иное — `TypeError` с путём до значения.
+
+### Канал снимков (Linux)
+
+Писатель периодически отдаёт снимок целиком, читатель держит последний. Имён в ОС нет:
+снимок — запечатанный memfd, дескриптор идёт по сокету.
+
+```python
+import socket, subprocess, sys
+from shmobj import channel
+
+# читатель (родитель)
+pub_end, sub_end = channel.socketpair()
+child = subprocess.Popen([sys.executable, "writer.py", str(pub_end.fileno())], pass_fds=[pub_end.fileno()])
+pub_end.close()
+sub = channel.Subscriber(sub_end)
+sub.attach(lambda root: print(root["n"]))   # в работающем цикле asyncio; без него — sub.receive()
+
+# писатель (writer.py)
+pub = channel.Publisher(socket.socket(fileno=int(sys.argv[1])))
+pub.publish({"n": 1})                       # False — читатель отстал, снимок пропущен
+```
+
+- `sub.latest` — корень последнего снимка (`FrozenDict`, …), `None` до первого; прежние
+  освобождаются, когда отпущены их прокси.
+- Выход писателя закрывает канал у читателя (`sub.closed`), `latest` остаётся. Новый писатель — новая пара.
+- На Windows и macOS `channel.SUPPORTED` ложно, конструкторы дают `NotImplementedError`.
 
 Правила закрытия и удаления сегмента — в [README](../README.md#жизненный-цикл-сегмента),
 полная семантика — [spec/02-api.md](spec/02-api.md).

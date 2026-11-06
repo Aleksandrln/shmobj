@@ -96,6 +96,48 @@ with shmobj.attach(name) as seg:
 | `TypeError` | — | Неподдерживаемый тип при сборке; в сообщении путь, например `root['users'][3]['tags']` |
 | `ValueError` | — | Цикл в данных или превышение лимитов |
 
-## 6. Зарезервированные имена (RW, не реализуются в v1)
+## 6. Канал снимков `shmobj.channel` (Linux)
+
+Один писатель отдаёт читателю снимки целиком; читателю нужен только последний. Контракт с
+типами: `python/shmobj/channel.pyi`.
+
+```python
+pub_sock, sub_sock = shmobj.channel.socketpair()     # sub_sock — в дочерний процесс через pass_fds
+pub = shmobj.channel.Publisher(pub_sock)
+pub.publish({"vms": {101: {"cpu": 0.5}}})            # True; False — очередь полна, снимок пропущен
+
+sub = shmobj.channel.Subscriber(sub_sock)
+sub.attach(lambda root: ...)                         # asyncio: колбэк на каждый новый снимок
+sub.latest["vms"].get_many([101, 102], None)         # корень последнего снимка
+```
+
+Передача:
+- снимок — `dumps(obj)` в memfd, запечатанный `F_SEAL_SEAL | SHRINK | GROW | WRITE`;
+- дескриптор идёт по сокету AF_UNIX SOCK_SEQPACKET (SCM_RIGHTS), одно сообщение на снимок,
+  тело — один байт;
+- читатель принимает только memfd с `F_SEAL_WRITE` и `F_SEAL_SHRINK` и отображает его на чтение.
+  Без печатей снимок могли бы изменить или укоротить под читателем, и чтение отображения дало бы SIGBUS;
+- имён в ОС нет: снимок освобождается, когда закрыт последний дескриптор и отпущен последний
+  прокси. После падения любой из сторон ничего не остаётся.
+
+| Член | Описание |
+|---|---|
+| `SUPPORTED: bool` | Есть `memfd_create`, печати и SCM_RIGHTS. Иначе (Windows, macOS) конструкторы и `socketpair()` дают `NotImplementedError` |
+| `socketpair()` | Пара AF_UNIX SOCK_SEQPACKET; концы равноправны, не наследуются |
+| `Publisher(sock, *, sndbuf=16384, name="shmobj")` | Владеет `sock`: неблокирующий режим, `SO_SNDBUF = sndbuf`. `name` — имя memfd (видно в `/proc/<pid>/maps`) |
+| `Publisher.publish(obj, *, dedup=True, checksum=True) -> bool` | Не блокирует. `False` — буфер отправки полон (читатель не разбирает очередь), снимок пропущен. Читатель закрыл канал — `BrokenPipeError` |
+| `Subscriber(sock, *, verify=False)` | Владеет `sock`. `verify` передаётся в `loads` для каждого снимка |
+| `Subscriber.latest` | Корень последнего принятого снимка, `None` — снимков не было. Переживает закрытие канала |
+| `Subscriber.receive() -> bool` | Разбирает очередь без ожидания и берёт последний снимок, прочие закрывает. `True` — `latest` сменился. Конец канала закрывает сокет. Незапечатанный снимок — `ValueError`, `latest` прежний |
+| `Subscriber.attach(callback=None, *, loop=None)` | `loop.add_reader` (по умолчанию текущий цикл): `receive()` по готовности сокета, `callback(latest)` на каждый новый снимок. Исключения уходят в обработчик исключений цикла, приём продолжается. Конец канала снимает сокет с цикла |
+| `Subscriber.detach()` | Снять с цикла, сокет открыт |
+| `fileno()`, `closed`, `close()`, `__enter__`/`__exit__` | У обоих концов; `close()` идемпотентен |
+
+Очередь ограничена `sndbuf`: каждое непрочитанное сообщение держит свой memfd, поэтому писатель
+не копит снимки, а пропускает их. Прежний снимок освобождается, когда отпущены его прокси;
+отображение держит копию дескриптора (`mmap`), так что живой снимок — это одно отображение и
+один дескриптор.
+
+## 7. Зарезервированные имена (RW, не реализуются в v1)
 
 `SharedDict`, `SharedList`, `create_rw`, `attach_rw`, `freeze`, `thaw`, модуль `shmobj.abc`.

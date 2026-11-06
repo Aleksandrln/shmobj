@@ -4,6 +4,8 @@ from typing import Any, Final, TypeAlias, TypeVar, overload
 
 from _typeshed import ReadableBuffer
 
+from . import channel as channel
+
 FORMAT_VERSION: Final[int]  # 1
 
 Scalar: TypeAlias = None | bool | int | float | str | bytes
