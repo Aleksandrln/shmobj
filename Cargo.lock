@@ -406,7 +406,7 @@ dependencies = [
 
 [[package]]
 name = "shmobj-core"
-version = "0.2.0"
+version = "0.3.0"
 dependencies = [
  "proptest",
  "xxhash-rust",
@@ -414,7 +414,7 @@ dependencies = [
 
 [[package]]
 name = "shmobj-py"
-version = "0.2.0"
+version = "0.3.0"
 dependencies = [
  "pyo3",
  "shmobj-core",

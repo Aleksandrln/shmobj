@@ -7,7 +7,7 @@
 ```
 shmobj/__init__.py       # Python-обёртка: реэкспорт, create/attach
 shmobj/_shm.py           # SharedMemory, resource_tracker
-shmobj/channel.py        # канал снимков (Linux)
+shmobj/channel.py        # канал снимков (Linux, Windows)
 shmobj/_core.abi3.so     # скомпилированные shmobj-core + shmobj-py (на Windows — _core.pyd)
 shmobj/__init__.pyi, channel.pyi, py.typed   # типы и докстринги для IDE
 ```
@@ -97,10 +97,11 @@ if __name__ == "__main__":
 - Допустимые типы: `dict`, `list`, `tuple` (читается как список), `None`, `bool`, `int` (любой
   длины), `float`, `str`, `bytes`; ключи — скаляры. Иное — `TypeError` с путём до значения.
 
-### Канал снимков (Linux)
+### Канал снимков (Linux, Windows)
 
-Писатель периодически отдаёт снимок целиком, читатель держит последний. Имён в ОС нет:
-снимок — запечатанный memfd, дескриптор идёт по сокету.
+Писатель периодически отдаёт снимок целиком, читатель держит последний. На Linux снимок —
+запечатанный memfd, дескриптор идёт по сокету; на Windows — именованная SharedMemory, по сокету идёт
+имя, читатель подтверждает приём. После падения любой из сторон в ОС ничего не остаётся.
 
 ```python
 import socket, subprocess, sys
@@ -108,7 +109,7 @@ from shmobj import channel
 
 # читатель (родитель)
 pub_end, sub_end = channel.socketpair()
-child = subprocess.Popen([sys.executable, "writer.py", str(pub_end.fileno())], pass_fds=[pub_end.fileno()])
+child = subprocess.Popen([sys.executable, "writer.py", str(pub_end.fileno())], **channel.spawn_kwargs(pub_end))
 pub_end.close()
 sub = channel.Subscriber(sub_end)
 sub.attach(lambda root: print(root["n"]))   # в работающем цикле asyncio; без него — sub.receive()
@@ -121,7 +122,11 @@ pub.publish({"n": 1})                       # False — читатель отс�
 - `sub.latest` — корень последнего снимка (`FrozenDict`, …), `None` до первого; прежние
   освобождаются, когда отпущены их прокси.
 - Выход писателя закрывает канал у читателя (`sub.closed`), `latest` остаётся. Новый писатель — новая пара.
-- На Windows и macOS `channel.SUPPORTED` ложно, конструкторы дают `NotImplementedError`.
+- `spawn_kwargs(sock)` — аргументы `Popen` для наследования сокета: `pass_fds` на Linux,
+  `startupinfo` с `handle_list` на Windows.
+- Windows: очередь — 4 неподтверждённых снимка; снимок, который писатель не успел отдать до
+  `close()` или выхода, теряется. Печатей нет — снимок не меняет только сам писатель.
+- На macOS `channel.SUPPORTED` ложно, конструкторы дают `NotImplementedError`.
 
 Правила закрытия и удаления сегмента — в [README](../README.md#жизненный-цикл-сегмента),
 полная семантика — [spec/02-api.md](spec/02-api.md).

@@ -36,7 +36,7 @@ shmobj/
 ├── python/shmobj/
 │   ├── __init__.py               # реэкспорт _core, create/attach, регистрация в abc
 │   ├── _shm.py                   # жизненный цикл SharedMemory, resource_tracker
-│   ├── channel.py, channel.pyi   # канал снимков: memfd + SCM_RIGHTS (Linux)
+│   ├── channel.py, channel.pyi   # канал снимков: memfd + SCM_RIGHTS (Linux), именованные снимки (Windows)
 │   ├── __init__.pyi              # из skeleton/
 │   └── py.typed
 ├── reference/                    # копия эталона из ТЗ (оракул для тестов)
