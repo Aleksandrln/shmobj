@@ -179,8 +179,22 @@ def test_asyncio_attach():
             if sub.closed:
                 break
             await asyncio.sleep(0.01)
-        assert sub.closed and sub._loop is None
+        assert sub.closed and sub._reader is None
         assert sub.latest["i"] == 2
+
+    asyncio.run(main())
+
+
+@needs_channel
+def test_close_after_socket_closed_outside():
+    async def main():
+        pub_sock, sub_sock = channel.socketpair()
+        with channel.Publisher(pub_sock):
+            sub = channel.Subscriber(sub_sock)
+            sub.attach()
+            sub_sock.close()  # чужой код закрыл сокет, не сняв его с цикла
+            sub.close()
+            assert sub.closed and sub._reader is None
 
     asyncio.run(main())
 

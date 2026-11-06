@@ -36,10 +36,43 @@ _MSG = b"S"
 _MAX_FDS = 4
 
 
+def _require() -> None:
+    if not SUPPORTED:
+        raise NotImplementedError("shmobj.channel: нужны memfd_create и SCM_RIGHTS (Linux)")
+
+
 def socketpair() -> tuple[socket.socket, socket.socket]:
     """Пара сокетов канала (AF_UNIX, SOCK_SEQPACKET); концы равноправны. В дочерний процесс — `pass_fds`."""
     _require()
     return socket.socketpair(socket.AF_UNIX, socket.SOCK_SEQPACKET)
+
+
+def _check_socket(sock: socket.socket) -> None:
+    if sock.family != socket.AF_UNIX or sock.type != socket.SOCK_SEQPACKET:
+        raise ValueError("shmobj.channel: нужен сокет AF_UNIX SOCK_SEQPACKET")
+
+
+def _sealed_memfd(name: str, obj: Any, dedup: bool, checksum: bool) -> int:
+    fd = os.memfd_create(name, os.MFD_ALLOW_SEALING | os.MFD_CLOEXEC)
+    out = None
+
+    def alloc(size: int) -> mmap.mmap:
+        nonlocal out
+        os.ftruncate(fd, size)
+        out = mmap.mmap(fd, size)
+        return out
+
+    try:
+        try:
+            dumps_into(obj, alloc, dedup=dedup, checksum=checksum)  # сборка сразу в memfd
+        finally:
+            if out is not None:
+                out.close()  # F_SEAL_WRITE не ставится, пока есть записываемое отображение
+        fcntl.fcntl(fd, _F_ADD_SEALS, _SEALS)
+    except BaseException:
+        os.close(fd)
+        raise
+    return fd
 
 
 class Publisher:
@@ -82,6 +115,14 @@ class Publisher:
         self.close()
 
 
+def _load(fd: int, verify: bool) -> Any:
+    try:
+        if fcntl.fcntl(fd, _F_GET_SEALS) & _REQUIRED_SEALS != _REQUIRED_SEALS:
+            raise ValueError("shmobj.channel: снимок не запечатан от записи и укорачивания")
+        buf = mmap.mmap(fd, os.fstat(fd).st_size, prot=mmap.PROT_READ)
+    finally:
+        os.close(fd)
+    return open_segment(buf, verify=verify).root  # прокси держат mmap; отпущен последний — память уходит ядру
 class Subscriber:
     """Конец читателя. Владеет сокетом; `latest` переживает закрытие канала."""
 
@@ -92,63 +133,27 @@ class Subscriber:
         self._sock = sock
         self._verify = verify
         self._latest: Any = None
-        self._loop = None
+        self._reader = None  # (цикл asyncio, дескриптор на нём)
 
     @property
     def latest(self) -> Any:
         """Корень последнего принятого снимка; None — снимков ещё не было."""
         return self._latest
 
-    def receive(self) -> bool:
-        """Разобрать очередь без ожидания: True — `latest` сменился. Конец канала закрывает сокет."""
-        if self.closed:
-            return False
-        fd, eof = self._drain()
-        if eof:
-            self.close()
-        if fd is None:
-            return False
-        self._latest = _load(fd, self._verify)
-        return True
-
-    def attach(self, callback: Callable[[Any], None] | None = None, *, loop=None) -> None:
-        """Принимать снимки в цикле asyncio (`loop` — по умолчанию текущий): `callback(latest)` на каждый новый.
-
-        Исключения `receive` и `callback` уходят в обработчик исключений цикла; приём продолжается.
-        """
-        if loop is None:
-            import asyncio
-            loop = asyncio.get_running_loop()
-        self.detach()
-        loop.add_reader(self._sock.fileno(), self._on_readable, callback)
-        self._loop = loop
-
-    def detach(self) -> None:
-        """Снять сокет с цикла asyncio; сокет остаётся открытым."""
-        loop, self._loop = self._loop, None
-        if loop is not None:
-            loop.remove_reader(self._sock.fileno())
-
-    def fileno(self) -> int:
-        return self._sock.fileno()
-
     @property
     def closed(self) -> bool:
         return self._sock.fileno() == -1
 
+    def detach(self) -> None:
+        """Снять сокет с цикла asyncio; сокет остаётся открытым."""
+        reader, self._reader = self._reader, None
+        if reader is not None:  # по запомненному дескриптору: сокет могли закрыть снаружи
+            loop, fd = reader
+            loop.remove_reader(fd)
+
     def close(self) -> None:
         self.detach()
         self._sock.close()
-
-    def __enter__(self) -> Subscriber:
-        return self
-
-    def __exit__(self, *exc: object) -> None:
-        self.close()
-
-    def _on_readable(self, callback: Callable[[Any], None] | None) -> None:
-        if self.receive() and callback is not None:
-            callback(self._latest)
 
     def _drain(self) -> tuple[int | None, bool]:
         """Дескриптор последнего снимка в очереди (прежние закрываются) и признак конца канала."""
@@ -169,45 +174,40 @@ class Subscriber:
                 for fd in skipped:
                     os.close(fd)
 
+    def receive(self) -> bool:
+        """Разобрать очередь без ожидания: True — `latest` сменился. Конец канала закрывает сокет."""
+        if self.closed:
+            return False
+        fd, eof = self._drain()
+        if eof:
+            self.close()
+        if fd is None:
+            return False
+        self._latest = _load(fd, self._verify)
+        return True
 
-def _require() -> None:
-    if not SUPPORTED:
-        raise NotImplementedError("shmobj.channel: нужны memfd_create и SCM_RIGHTS (Linux)")
+    def _on_readable(self, callback: Callable[[Any], None] | None) -> None:
+        if self.receive() and callback is not None:
+            callback(self._latest)
 
+    def attach(self, callback: Callable[[Any], None] | None = None, *, loop=None) -> None:
+        """Принимать снимки в цикле asyncio (`loop` — по умолчанию текущий): `callback(latest)` на каждый новый.
 
-def _check_socket(sock: socket.socket) -> None:
-    if sock.family != socket.AF_UNIX or sock.type != socket.SOCK_SEQPACKET:
-        raise ValueError("shmobj.channel: нужен сокет AF_UNIX SOCK_SEQPACKET")
+        Исключения `receive` и `callback` уходят в обработчик исключений цикла; приём продолжается.
+        """
+        if loop is None:
+            import asyncio
+            loop = asyncio.get_running_loop()
+        self.detach()
+        fd = self._sock.fileno()
+        loop.add_reader(fd, self._on_readable, callback)
+        self._reader = loop, fd
 
+    def fileno(self) -> int:
+        return self._sock.fileno()
 
-def _sealed_memfd(name: str, obj: Any, dedup: bool, checksum: bool) -> int:
-    fd = os.memfd_create(name, os.MFD_ALLOW_SEALING | os.MFD_CLOEXEC)
-    out = None
+    def __enter__(self) -> Subscriber:
+        return self
 
-    def alloc(size: int) -> mmap.mmap:
-        nonlocal out
-        os.ftruncate(fd, size)
-        out = mmap.mmap(fd, size)
-        return out
-
-    try:
-        try:
-            dumps_into(obj, alloc, dedup=dedup, checksum=checksum)  # сборка сразу в memfd
-        finally:
-            if out is not None:
-                out.close()  # F_SEAL_WRITE не ставится, пока есть записываемое отображение
-        fcntl.fcntl(fd, _F_ADD_SEALS, _SEALS)
-    except BaseException:
-        os.close(fd)
-        raise
-    return fd
-
-
-def _load(fd: int, verify: bool) -> Any:
-    try:
-        if fcntl.fcntl(fd, _F_GET_SEALS) & _REQUIRED_SEALS != _REQUIRED_SEALS:
-            raise ValueError("shmobj.channel: снимок не запечатан от записи и укорачивания")
-        buf = mmap.mmap(fd, os.fstat(fd).st_size, prot=mmap.PROT_READ)
-    finally:
-        os.close(fd)
-    return open_segment(buf, verify=verify).root  # прокси держат mmap; отпущен последний — память уходит ядру
+    def __exit__(self, *exc: object) -> None:
+        self.close()

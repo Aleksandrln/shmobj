@@ -39,6 +39,17 @@ fn dumps<'py>(obj: &Bound<'py, PyAny>, dedup: bool, checksum: bool) -> PyResult<
     Ok(PyBytes::new(obj.py(), &b.finish(root, checksum)))
 }
 
+fn copy_into(head: &Bound<'_, PyAny>, data: &[u8]) -> PyResult<()> {
+    let buf = PyBuffer::<u8>::get(head)?;
+    if buf.readonly() {
+        return Err(PyValueError::new_err("alloc(size): буфер только для чтения"));
+    }
+    if buf.item_count() != data.len() {
+        return Err(PyValueError::new_err("alloc(size): буфер короче size"));
+    }
+    buf.copy_from_slice(head.py(), data) // экспорт отпускается при удалении `buf`
+}
+
 /// Собрать сегмент и записать его в начало буфера `alloc(size)`; возвращает `size`.
 ///
 /// Буфер — записываемый, C-непрерывный, не короче `size`. Экспорт буфера отпускается до возврата,
@@ -59,17 +70,6 @@ fn dumps_into(obj: &Bound<'_, PyAny>, alloc: &Bound<'_, PyAny>, dedup: bool, che
     });
     view.call_method0("release")?;
     copied.map(|()| data.len())
-}
-
-fn copy_into(head: &Bound<'_, PyAny>, data: &[u8]) -> PyResult<()> {
-    let buf = PyBuffer::<u8>::get(head)?;
-    if buf.readonly() {
-        return Err(PyValueError::new_err("alloc(size): буфер только для чтения"));
-    }
-    if buf.item_count() != data.len() {
-        return Err(PyValueError::new_err("alloc(size): буфер короче size"));
-    }
-    buf.copy_from_slice(head.py(), data) // экспорт отпускается при удалении `buf`
 }
 
 /// Полная проверка формата; при любом нарушении — `FormatError`.
