@@ -72,7 +72,8 @@ if __name__ == "__main__":
 - Пакетный доступ быстрее поэлементного: `get_many(keys, default)`, `iter_values()`, `iter_items()`.
 - `materialize()` — копия в обычные `dict`/`list`.
 - Без общей памяти: `shmobj.dumps(obj) -> bytes`, `shmobj.loads(buf)` поверх любого буфера
-  (`bytes`, `mmap`, `memoryview`).
+  (`bytes`, `mmap`, `memoryview`). `shmobj.dumps_into(obj, alloc)` пишет сегмент в буфер
+  `alloc(size)` (например, `mmap` файла нужного размера) без промежуточных `bytes`.
 - Проверка данных. Без флагов `loads`/`attach` проверяют только заголовок, остальное — при каждом
   чтении: границы, типы узлов, пост-порядок. Испорченный сегмент даёт `FormatError` при обращении
   к испорченному месту, без падения процесса. `verify=True` дополнительно сверяет контрольную сумму

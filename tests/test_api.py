@@ -149,3 +149,39 @@ def test_format_errors():
         shmobj.loads(bytes(bad), verify=True)
     with pytest.raises(shmobj.FormatError):
         shmobj.validate(bytes(bad))
+
+
+def test_dumps_into():
+    import mmap
+
+    obj = {"users": [{"id": i, "name": f"u{i}"} for i in range(100)], "x": None}
+    bufs = []
+
+    def alloc(size):
+        bufs.append(bytearray(b"\xff" * (size + 7)))  # длиннее size — сегмент пишется в начало
+        return bufs[-1]
+
+    n = shmobj.dumps_into(obj, alloc, dedup=False, checksum=False)
+    expected = shmobj.dumps(obj, dedup=False, checksum=False)
+    assert len(bufs) == 1 and n == len(expected)
+    assert bufs[0] == expected + b"\xff" * 7
+    bufs[0].extend(b"x")  # экспорт буфера отпущен, иначе BufferError
+
+    m = mmap.mmap(-1, n)
+    assert shmobj.dumps_into(obj, lambda size: m, dedup=False, checksum=False) == n
+    assert m[:] == expected
+    m.close()
+
+
+def test_dumps_into_errors():
+    obj = [1, 2, 3]
+    with pytest.raises(ValueError, match="только для чтения"):
+        shmobj.dumps_into(obj, lambda size: bytes(size))
+    with pytest.raises(ValueError, match="короче"):
+        shmobj.dumps_into(obj, lambda size: bytearray(size - 1))
+    with pytest.raises(OSError):
+        shmobj.dumps_into(obj, lambda size: (_ for _ in ()).throw(OSError("нет памяти")))
+    called = []
+    with pytest.raises(TypeError, match=r"root\[0\]"):
+        shmobj.dumps_into([object()], called.append)
+    assert called == []  # ошибка сборки — до выделения буфера

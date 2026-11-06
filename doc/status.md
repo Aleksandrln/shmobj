@@ -7,7 +7,7 @@
 | 0 | Каркас | Готово: workspace, maturin, CI (fmt, clippy, `cargo test`, pytest на 3 ОС × 3.11/3.13, wheels). Нет fuzz |
 | 1 | Ядро: чтение | Готово: заголовок, слоты, скаляры, LIST (все подтипы), DICT/KEYTABLE (LINEAR, SORTED32), `validate`. Нет fuzz-целей и proptest |
 | 2 | Привязки: чтение | Готово функционально: `Segment`, `FrozenDict`, `FrozenList`, срезы, `keys/values/items`, `get_many`, `iter_*`, `materialize`, `==`, `repr`, отказ `hash`/`pickle`, `loads`/`validate` |
-| 3 | Сборка | Готово: `Writer` + обход Python-объектов, дедупликация, общие KEYTABLE, типизированные списки, пути в ошибках, циклы. Байты совпадают с эталоном |
+| 3 | Сборка | Готово: `Writer` + обход Python-объектов, `dumps_into` (сборка в буфер вызывающего; через него `create` и канал), дедупликация, общие KEYTABLE, типизированные списки, пути в ошибках, циклы. Байты совпадают с эталоном |
 | 4 | Жизненный цикл | Готово базово: `create`/`attach`/`close`/`unlink`, `resource_tracker` 3.11–3.12, `track=False` 3.13+. На Windows/macOS не проверялось локально (только CI) |
 | 4a | Канал снимков | Готово: `shmobj.channel` (`02-api.md` §6), только Linux; на Windows/macOS `SUPPORTED = False` |
 | 5 | Производительность | Не начато |

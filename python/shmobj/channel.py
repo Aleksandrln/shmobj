@@ -1,6 +1,6 @@
 """Канал снимков: последний снимок от писателя к читателю через память без имени (Linux).
 
-Писатель собирает снимок `dumps`, пишет в memfd, запечатывает его от записи и изменения размера
+Писатель собирает снимок прямо в memfd (`dumps_into`), запечатывает его от записи и изменения размера
 и передаёт дескриптор по сокету AF_UNIX SOCK_SEQPACKET (SCM_RIGHTS). Читатель берёт из очереди
 последний снимок (прочие закрывает), отображает его `mmap` только на чтение и открывает `loads`.
 Снимок освобождается ядром, когда закрыт последний дескриптор и отпущен последний прокси, поэтому
@@ -14,7 +14,7 @@ import socket
 from collections.abc import Callable
 from typing import Any
 
-from ._core import dumps, open_segment
+from ._core import dumps_into, open_segment
 
 try:
     import fcntl
@@ -56,7 +56,7 @@ class Publisher:
 
     def publish(self, obj: Any, *, dedup: bool = True, checksum: bool = True) -> bool:
         """Отправить снимок `obj`. False — очередь полна (читатель не разбирает её), снимок пропущен."""
-        fd = _sealed_memfd(self._name, dumps(obj, dedup=dedup, checksum=checksum))
+        fd = _sealed_memfd(self._name, obj, dedup, checksum)
         try:
             socket.send_fds(self._sock, [_MSG], [fd])
         except BlockingIOError:
@@ -180,12 +180,22 @@ def _check_socket(sock: socket.socket) -> None:
         raise ValueError("shmobj.channel: нужен сокет AF_UNIX SOCK_SEQPACKET")
 
 
-def _sealed_memfd(name: str, data: bytes) -> int:
+def _sealed_memfd(name: str, obj: Any, dedup: bool, checksum: bool) -> int:
     fd = os.memfd_create(name, os.MFD_ALLOW_SEALING | os.MFD_CLOEXEC)
+    out = None
+
+    def alloc(size: int) -> mmap.mmap:
+        nonlocal out
+        os.ftruncate(fd, size)
+        out = mmap.mmap(fd, size)
+        return out
+
     try:
-        view = memoryview(data)
-        while view:
-            view = view[os.write(fd, view):]
+        try:
+            dumps_into(obj, alloc, dedup=dedup, checksum=checksum)  # сборка сразу в memfd
+        finally:
+            if out is not None:
+                out.close()  # F_SEAL_WRITE не ставится, пока есть записываемое отображение
         fcntl.fcntl(fd, _F_ADD_SEALS, _SEALS)
     except BaseException:
         os.close(fd)

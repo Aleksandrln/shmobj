@@ -20,6 +20,7 @@ with shmobj.attach(name) as seg:
 | Функция | Описание |
 |---|---|
 | `dumps(obj, *, dedup=True, checksum=True) -> bytes` | Собрать сегмент в `bytes` |
+| `dumps_into(obj, alloc, *, dedup=True, checksum=True) -> int` | Собрать сегмент и записать в начало буфера `alloc(size)` (записываемый, C-непрерывный, не короче `size`, иначе `ValueError`); возвращает `size`. Без промежуточных `bytes`; экспорт буфера отпускается до возврата. Ошибка сборки — до вызова `alloc` |
 | `loads(buf, *, verify=False) -> Value` | Корень поверх буфера без копирования. `verify=True` дополнительно проверяет контрольную сумму, O(n) |
 | `create(obj, name=None, *, dedup=True, checksum=True) -> Segment` | `dumps` и запись в новую `SharedMemory`. Процесс-создатель становится владельцем сегмента |
 | `attach(name, *, verify=False) -> Segment` | Подключение к существующему сегменту |
@@ -112,7 +113,7 @@ sub.latest["vms"].get_many([101, 102], None)         # корень послед
 ```
 
 Передача:
-- снимок — `dumps(obj)` в memfd, запечатанный `F_SEAL_SEAL | SHRINK | GROW | WRITE`;
+- снимок собирается `dumps_into` прямо в memfd, затем memfd запечатывается `F_SEAL_SEAL | SHRINK | GROW | WRITE`;
 - дескриптор идёт по сокету AF_UNIX SOCK_SEQPACKET (SCM_RIGHTS), одно сообщение на снимок,
   тело — один байт;
 - читатель принимает только memfd с `F_SEAL_WRITE` и `F_SEAL_SHRINK` и отображает его на чтение.
