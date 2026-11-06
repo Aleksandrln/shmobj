@@ -9,7 +9,7 @@ shmobj/__init__.py       # Python-обёртка: реэкспорт, create/att
 shmobj/_shm.py           # SharedMemory, resource_tracker
 shmobj/channel.py        # канал снимков (Linux)
 shmobj/_core.abi3.so     # скомпилированные shmobj-core + shmobj-py (на Windows — _core.pyd)
-shmobj/__init__.pyi, py.typed
+shmobj/__init__.pyi, channel.pyi, py.typed   # типы и докстринги для IDE
 ```
 
 Rust-часть компилируется один раз, при сборке колеса, в нативную библиотеку-модуль расширения
@@ -38,6 +38,20 @@ pip install dist/shmobj-*.whl
 `manylinux_2_34`) и не ставится на системы со старой glibc. Переносимые колёса для всех платформ
 собирает задача `wheels` в CI (`PyO3/maturin-action`, Linux — в manylinux-контейнере,
 x86_64/aarch64, Windows x64, macOS arm64); результат — артефакты `wheel-*` прогона.
+
+Колесо Windows x64 из Linux (mingw-w64, без Windows и Python под ним):
+
+```bash
+rustup target add x86_64-pc-windows-gnu
+apt-get install gcc-mingw-w64-x86-64
+maturin build --release --strip --target x86_64-pc-windows-gnu -o dist   # shmobj-*-cp311-abi3-win_amd64.whl
+```
+
+`_core.pyd` зависит только от `python3.dll` и системных dll (`objdump -p`). `--zig` для этой
+цели не годится: maturin 1.16 пишет в `.def` экспорт `PyInit_shmobj._core`, и линковка падает.
+
+Подсказки типов и докстринги для IDE — `__init__.pyi` и `channel.pyi`: PyCharm и Pylance берут их,
+а не `__doc__` модуля расширения. Докстринги `///` в `crates/shmobj-py` видны в `help()`.
 
 Для разработки: `maturin develop --release` — сборка и установка в активный venv в режиме editable
 (см. [dev.md](dev.md)).
