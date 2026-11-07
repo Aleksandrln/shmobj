@@ -409,6 +409,24 @@ def test_accept_in_thread(mode, tmp_path):
 
 
 @needs_channel
+def test_accept_last_subscriber_gone_no_error(mode, tmp_path):
+    pub_cls, sub_cls = CLASSES[mode]
+    with pub_cls(name=f"shmobj-test-{os.getpid()}-gone-{mode}") as pub:
+        address = pub.accept_in_thread(_listen(mode, tmp_path))
+        with sub_cls(_connect(mode, address)) as sub:
+            pub.publish({"n": 1})
+            _wait_receive(sub, 1)
+        for _ in range(200):  # ушёл последний: без BrokenPipeError, пока идёт приём
+            pub.publish({"n": 2})
+            if pub.subscribers == 0:
+                break
+            time.sleep(0.01)
+        assert pub.subscribers == 0
+        with sub_cls(_connect(mode, address)) as sub:
+            _wait_receive(sub, 2)  # новый подписчик получает последний снимок
+
+
+@needs_channel
 def test_accept_in_loop(mode, tmp_path):
     pub_cls, sub_cls = CLASSES[mode]
 

@@ -47,13 +47,10 @@ def writer() -> None:
         ]
         tick = 0
         while any(r.poll() is None for r in readers):  # пока живы дочерние процессы-читатели
-            try:
-                # Снимок собирается один раз (Linux — запечатанный memfd, Windows — SharedMemory) и уходит всем
-                # подписчикам без ожидания. False — у кого-то полна очередь, ему этот снимок пропущен.
-                # Ушедшие подписчики убираются сами.
-                pub.publish({"tick": tick, "vms": {vm: {"cpu": tick % 100} for vm in range(100, 110)}})
-            except BrokenPipeError:
-                pass  # ушёл последний подписчик; снимок всё равно стал последним для следующих add
+            # Снимок собирается один раз (Linux — запечатанный memfd, Windows — SharedMemory) и уходит всем
+            # подписчикам без ожидания. False — у кого-то полна очередь, ему этот снимок пропущен.
+            # Ушедшие подписчики убираются сами; при приёме подключений уход последнего — не ошибка.
+            pub.publish({"tick": tick, "vms": {vm: {"cpu": tick % 100} for vm in range(100, 110)}})
             tick += 1
             time.sleep(0.05)
     print(f"писатель: последний tick={tick - 1}")

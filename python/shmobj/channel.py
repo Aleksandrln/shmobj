@@ -355,7 +355,8 @@ class _Publisher:
 
     def publish(self, obj: Any, *, dedup: bool = True, checksum: bool = True) -> bool:
         """Собрать снимок `obj` один раз и отправить всем подписчикам. False — хотя бы у одного очередь
-        полна, ему снимок пропущен. Последний подписчик закрыл канал — `BrokenPipeError`."""
+        полна, ему снимок пропущен. Последний подписчик закрыл канал — `BrokenPipeError`, кроме приёма
+        подключений (`accept_in_*`)."""
         with self._lock:
             return self._publish(obj, dedup, checksum)
 
@@ -377,7 +378,7 @@ class _Publisher:
                 gone.append(sub)
             elif not sent:
                 delivered = False
-        if gone and not self._subs:
+        if gone and not self._subs and self._listener is None:  # при приёме подключений подписчики ещё придут
             raise BrokenPipeError("shmobj.channel: подписчики закрыли канал")
         return delivered
 
