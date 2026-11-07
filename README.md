@@ -35,12 +35,12 @@ seg.unlink()
 - `loads(buf)` удерживает экспорт буфера: пока живы прокси, `mmap.close()` / `SharedMemory.close()` у исходного объекта дают `BufferError`.
 - Данные сегмента после публикации никто не меняет — это контракт; граничные проверки при чтении сохраняются всегда.
 
-## Сборка колёс
+## Сборка wheels
 
 Из корня репозитория, на Linux; нужны Rust stable и Python ≥ 3.11. Подробности — [doc/usage.md](doc/usage.md#сборка).
 
 1. Версия — `version` в `crates/shmobj-py/Cargo.toml` и `crates/shmobj-core/Cargo.toml`, затем
-   `cargo update -w`. Колесо с прежней версией pip без `--force-reinstall` не переставит.
+   `cargo update -w`. Wheel с прежней версией pip без `--force-reinstall` не переставит.
 2. Проверки — список в [doc/dev.md](doc/dev.md#проверки-то-же-что-в-ci).
 3. Один раз — инструменты:
    ```bash
@@ -57,10 +57,10 @@ seg.unlink()
    maturin build --release --strip --target x86_64-pc-windows-gnu --out dist
    ```
 6. В `dist/` — `shmobj-<версия>-cp311-abi3-manylinux2014_x86_64.manylinux_2_17_x86_64.whl` и
-   `shmobj-<версия>-cp311-abi3-win_amd64.whl`, одно колесо на все CPython ≥ 3.11. В каждом —
+   `shmobj-<версия>-cp311-abi3-win_amd64.whl`, один wheel на все CPython ≥ 3.11. В каждом —
    `shmobj/` и `pydevd_plugins/extensions/pydevd_plugin_shmobj.py` (`unzip -l`).
 
-На Windows колесо для неё же — `maturin build --release --out dist`. Колёса для всех платформ
+На Windows wheel для неё же — `maturin build --release --out dist`. Wheels для всех платформ
 собирает задача `wheels` в CI (артефакты `wheel-*`).
 
 ## Документация
