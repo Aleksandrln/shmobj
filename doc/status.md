@@ -9,7 +9,7 @@
 | 2 | Привязки: чтение | Готово функционально: `Segment`, `FrozenDict`, `FrozenList`, срезы, `keys/values/items`, `get_many`, `iter_*`, `materialize`, `==`, `repr`, отказ `hash`/`pickle`, `loads`/`validate` |
 | 3 | Сборка | Готово: `Writer` + обход Python-объектов, `dumps_into` (сборка в буфер вызывающего; через него `create` и канал), дедупликация, общие KEYTABLE, типизированные списки, пути в ошибках, циклы. Байты совпадают с эталоном |
 | 4 | Жизненный цикл | Готово базово: `create`/`attach`/`close`/`unlink`, `resource_tracker` 3.11–3.12, `track=False` 3.13+. На Windows/macOS не проверялось локально (только CI) |
-| 4a | Канал снимков | Готово: `shmobj.channel` (`02-api.md` §6): Linux — memfd, Windows — именованные снимки с подтверждением (проверяется в CI); один снимок на нескольких подписчиков (`Publisher.add`, `listen`/`connect`); на macOS `SUPPORTED = False` |
+| 4a | Канал снимков | Готово: `shmobj.channel` (`02-api.md` §6): Linux — memfd, Windows — именованные снимки с подтверждением (проверяется в CI); один снимок на нескольких подписчиков (`Publisher.add`, `listen`/`connect`, приём подключений — `accept_in_thread` / `accept_in_loop`); на macOS `SUPPORTED = False` |
 | 5 | Производительность | Не начато |
 | 6 | Выпуск | Не начато |
 
@@ -19,8 +19,8 @@
 - hypothesis: `dumps(v) == ref.build(v)`, взаимное чтение, `validate` на результате.
 - Повреждённые сегменты: вердикт `validate` совпадает с эталоном (5000 вариантов); в Rust все однобайтовые изменения `records.bin` без паник.
 - Python 3.11 и 3.13 на Linux, межпроцессное чтение через `spawn` и `fork`, отсутствие предупреждений `resource_tracker`.
-- Канал (`tests/test_channel.py`): последний из очереди, закрытие пропущенных и освобождение прежних снимков (`/proc/self/maps`, `/proc/self/fd`), печати, отказ от незапечатанного memfd, пропуск при полной очереди, конец канала с обеих сторон, asyncio, писатель в дочернем процессе; несколько подписчиков: один memfd на всех (`/proc/self/maps`), пропуск только отставшему, уход подписчиков, последний снимок новому, подтверждения от всех (Windows), `listen`/`connect`. Протокол Windows (`_NamedPublisher`/`_NamedSubscriber`) гоняется и на Linux поверх `/dev/shm`: имя снимка удаляется при подтверждении, поэтому освобождение там видно по `/proc/self/maps`.
-- Примеры `examples/channel_sync.py` и `examples/channel_async.py` (`tests/test_examples.py`): писатель в дочернем процессе, выход писателя после закрытия канала читателем. `examples/channel_fanout.py`: писатель и три читателя через `listen`/`connect`.
+- Канал (`tests/test_channel.py`): последний из очереди, закрытие пропущенных и освобождение прежних снимков (`/proc/self/maps`, `/proc/self/fd`), печати, отказ от незапечатанного memfd, пропуск при полной очереди, конец канала с обеих сторон, asyncio, писатель в дочернем процессе; несколько подписчиков: один memfd на всех (`/proc/self/maps`), пропуск только отставшему, уход подписчиков, последний снимок новому, подтверждения от всех (Windows), `listen`/`connect`, приём подключений в потоке и в asyncio. Протокол Windows (`_NamedPublisher`/`_NamedSubscriber`) гоняется и на Linux поверх `/dev/shm`: имя снимка удаляется при подтверждении, поэтому освобождение там видно по `/proc/self/maps`.
+- Примеры `examples/channel_sync.py` и `examples/channel_async.py` (`tests/test_examples.py`): писатель в дочернем процессе, выход писателя после закрытия канала читателем. `examples/channel_fanout.py`: писатель (`accept_in_thread`) и три читателя через `listen`/`connect`.
 
 ## Решения и отклонения
 

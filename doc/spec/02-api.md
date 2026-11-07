@@ -114,7 +114,8 @@ sub.latest["vms"].get_many([101, 102], None)         # корень послед
 ```
 
 Несколько читателей (воркеры Gunicorn/Uvicorn): писатель слушает `listen(address)` и подписывает
-каждое принятое соединение `pub.add(conn)`, читатель подключается `connect(address)`.
+подключения — `pub.accept_in_thread(listener)` (поток), `pub.accept_in_loop(listener)` (asyncio) или
+сам: `pub.add(conn)` на каждое принятое; читатель подключается `connect(address)`.
 
 Передача на Linux:
 - снимок собирается `dumps_into` прямо в memfd, затем memfd запечатывается `F_SEAL_SEAL | SHRINK | GROW | WRITE`;
@@ -151,9 +152,11 @@ sub.latest["vms"].get_many([101, 102], None)         # корень послед
 | `spawn_kwargs(sock) -> dict` | Аргументы `Popen`/`create_subprocess_exec` для наследования `sock`: `pass_fds` (Linux), `startupinfo` с `handle_list` (Windows; `sock` становится наследуемым). В дочернем процессе — `socket.socket(fileno=…)` с номером из родителя |
 | `Publisher(sock=None, *, sndbuf=16384, name="shmobj")` | `sock` — первый подписчик (`add`). Linux: `SO_SNDBUF = sndbuf` у сокета каждого подписчика, `name` — имя memfd (видно в `/proc/<pid>/maps`). Windows: `sndbuf` не используется, `name` — префикс имён снимков |
 | `Publisher.add(sock)` | Владеет `sock`, переводит в неблокирующий режим; последний снимок уходит сразу. Писатель закрыт — `ValueError` |
+| `Publisher.accept_in_thread(listener)` | Фоновый поток (daemon) ждёт `listener` в `selectors` и подписывает все ожидающие подключения. `add`, `publish`, `close` — под замком. Владеет `listener`: `close()` будит поток (своя пара сокетов), дожидается его и закрывает `listener` |
+| `Publisher.accept_in_loop(listener, *, loop=None)` | То же в цикле asyncio без потока: `loop.add_reader`, в цикле без него (ProactorEventLoop) — задача с `loop.sock_accept`. `close()` снимает приём с цикла и закрывает `listener` |
 | `Publisher.subscribers -> int` | Число подписчиков; закрывшие канал убираются (и их сокеты закрываются) при `publish` |
 | `Publisher.publish(obj, *, dedup=True, checksum=True) -> bool` | Одна сборка, отправка всем, не блокирует. `False` — у кого-то очередь полна, ему снимок пропущен. Снимок становится последним и без подписчиков. Последний подписчик закрыл канал — `BrokenPipeError` (следующий `publish` без подписчиков — без ошибки). Писатель закрыт — `ValueError` |
-| `Publisher.close()` | Закрывает сокеты подписчиков и отпускает снимки писателя. Windows: и неподтверждённые — читатели их не получат |
+| `Publisher.close()` | Останавливает приём подключений, закрывает сокеты подписчиков и `listener`, отпускает снимки писателя. Windows: и неподтверждённые — читатели их не получат |
 | `Subscriber(sock, *, verify=False)` | Владеет `sock`. `verify` передаётся в `loads`/`attach` для каждого снимка |
 | `Subscriber.latest` | Корень последнего принятого снимка, `None` — снимков не было. Переживает закрытие канала |
 | `Subscriber.receive() -> bool` | Разбирает очередь без ожидания и берёт последний снимок, прочие закрывает (Windows — подтверждает). `True` — `latest` сменился. Конец канала закрывает сокет. Linux: незапечатанный снимок — `ValueError`, `latest` прежний |

@@ -35,26 +35,20 @@ def _create_process(mode: str, address):
 
 
 def writer() -> None:
-    # listen — слушающий сокет: путь AF_UNIX (файла ещё не должно быть) или TCP на loopback, порт 0 — любой свободный.
-    # Publisher() без сокета — писатель без подписчиков; на выходе закроет сокеты подписчиков и отпустит снимки.
-    with tempfile.TemporaryDirectory() as tmp, \
-            channel.listen(("127.0.0.1", 0) if WINDOWS else os.path.join(tmp, "snapshots.sock")) as listener, \
-            channel.Publisher() as pub:
-        # не ждем. нет новых подключений raise BlockingIOError
-        listener.setblocking(False)
+    # Publisher() без сокета — писатель без подписчиков; на выходе остановит приём, закроет сокеты и отпустит снимки.
+    with tempfile.TemporaryDirectory() as tmp, channel.Publisher() as pub:
+        # listen — слушающий сокет: путь AF_UNIX (файла ещё не должно быть) или TCP на loopback, порт 0 — любой свободный.
+        listener = channel.listen(("127.0.0.1", 0) if WINDOWS else os.path.join(tmp, "snapshots.sock"))
         address = listener.getsockname()  # путь сокета или (host, port) с выданным портом
+        # Publisher забирает listener и в своём потоке подписывает (add) каждое подключение:
+        # новому читателю сразу уходит последний снимок. В asyncio — accept_in_loop, без потока.
+        pub.accept_in_thread(listener)
         readers = [
             _create_process(mode="--reader", address=str(address[1]) if WINDOWS else address) for _ in
             range(READERS)
         ]
         tick = 0
-        while any(r.poll() is None for r in readers):
-            while True:  # все, кто подключился с прошлого снимка
-                try:
-                    # add — привязать соеденение. В соеденение будет сразу же отправлено имя последнего снимка.
-                    pub.add(listener.accept()[0])
-                except BlockingIOError:
-                    break
+        while any(r.poll() is None for r in readers):  # пока живы дочерние процессы-читатели
             try:
                 # Снимок собирается один раз (Linux — запечатанный memfd, Windows — SharedMemory) и уходит всем
                 # подписчикам без ожидания. False — у кого-то полна очередь, ему этот снимок пропущен.

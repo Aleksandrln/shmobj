@@ -5,6 +5,7 @@ import os
 import socket
 import subprocess
 import sys
+import threading
 import time
 from multiprocessing import shared_memory
 
@@ -324,6 +325,82 @@ def test_listen_connect(tmp_path):
                     break
                 time.sleep(0.01)
             assert sub.latest["n"] == 1
+
+
+def _listen(mode, tmp_path):
+    if mode == "memfd":
+        return channel.listen(str(tmp_path / "snap.sock"))
+    return socket.create_server(("127.0.0.1", 0))  # протокол Windows на любой платформе — TCP
+
+
+def _connect(mode, address):
+    return channel.connect(address) if mode == "memfd" else socket.create_connection(address)
+
+
+def _wait_receive(sub, n):
+    for _ in range(200):
+        if sub.receive() and sub.latest["n"] == n:
+            return
+        time.sleep(0.01)
+    raise AssertionError(f"снимок {n} не пришёл")
+
+
+@needs_channel
+def test_accept_in_thread(mode, tmp_path):
+    pub_cls, sub_cls = CLASSES[mode]
+    pub = pub_cls(name=f"shmobj-test-{os.getpid()}-thread-{mode}")
+    listener = _listen(mode, tmp_path)
+    pub.publish({"n": 1})
+    pub.accept_in_thread(listener)
+    with pytest.raises(ValueError):  # приём уже идёт
+        pub.accept_in_thread(listener)
+    subs = [sub_cls(_connect(mode, listener.getsockname())) for _ in range(3)]
+    try:
+        for sub in subs:
+            _wait_receive(sub, 1)  # последний снимок — сразу при подключении, без нового publish
+        assert pub.publish({"n": 2})
+        for sub in subs:
+            _wait_receive(sub, 2)
+        pub.close()
+        assert listener.fileno() == -1
+        assert not any(t.name == f"{pub._name}-accept" for t in threading.enumerate())
+        for sub in subs:
+            for _ in range(200):
+                sub.receive()
+                if sub.closed:
+                    break
+                time.sleep(0.01)
+            assert sub.closed  # close писателя закрыл и сокеты подписчиков
+    finally:
+        pub.close()
+        for sub in subs:
+            sub.close()
+
+
+@needs_channel
+def test_accept_in_loop(mode, tmp_path):
+    pub_cls, sub_cls = CLASSES[mode]
+
+    async def main():
+        loop = asyncio.get_running_loop()
+        with pub_cls(name=f"shmobj-test-{os.getpid()}-loop-{mode}") as pub:
+            listener = _listen(mode, tmp_path)
+            pub.publish({"n": 1})
+            pub.accept_in_loop(listener)
+            got = asyncio.Queue()
+            subs = [sub_cls(_connect(mode, listener.getsockname())) for _ in range(2)]
+            for sub in subs:
+                sub.attach(lambda root: got.put_nowait(root["n"]))
+            assert [await asyncio.wait_for(got.get(), 5) for _ in subs] == [1, 1]
+            pub.publish({"n": 2})
+            assert [await asyncio.wait_for(got.get(), 5) for _ in subs] == [2, 2]
+            fd = listener.fileno()
+        assert listener.fileno() == -1
+        assert not loop.remove_reader(fd)  # приём снят с цикла
+        for sub in subs:
+            sub.close()
+
+    asyncio.run(main())
 
 
 @needs_channel

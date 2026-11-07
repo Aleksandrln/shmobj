@@ -27,7 +27,8 @@ def spawn_kwargs(sock: socket.socket) -> dict[str, Any]:
     В дочернем — `socket.socket(fileno=<sock.fileno() родителя>)`."""
 
 def listen(address: Any, backlog: int = 16) -> socket.socket:
-    """Слушающий сокет писателя: принятые соединения — в `Publisher.add`. Linux: `address` — путь
+    """Слушающий сокет писателя: в `Publisher.accept_in_thread` / `accept_in_loop` или принятые
+    соединения — в `Publisher.add`. Linux: `address` — путь
     AF_UNIX SOCK_SEQPACKET (файл не должен существовать; `"\\0имя"` — абстрактный, без файла).
     Windows: `(host, port)` TCP, порт 0 — свободный, узнать — `getsockname()`."""
 
@@ -44,6 +45,15 @@ class Publisher:
         префикс имён SharedMemory (`<name>-<pid>-<номер>`)."""
     def add(self, sock: socket.socket) -> None:
         """Подписать сокет; последний опубликованный снимок уходит ему сразу. Писатель закрыт — `ValueError`."""
+    def accept_in_thread(self, listener: socket.socket) -> None:
+        """Подписывать (`add`) подключения к `listener` (`listen`) в фоновом потоке. Владеет `listener`:
+        поток останавливается и `listener` закрывается в `close()`. `add`, `publish` и `close` — под
+        замком, звать их можно из любого потока. Приём уже идёт или писатель закрыт — `ValueError`."""
+    def accept_in_loop(self, listener: socket.socket, *, loop: asyncio.AbstractEventLoop | None = None) -> None:
+        """Подписывать (`add`) подключения к `listener` (`listen`) в цикле asyncio (`loop` — по умолчанию
+        текущий), без потока: `loop.add_reader`, в цикле без него (ProactorEventLoop) — задача с
+        `sock_accept`. Владеет `listener`: приём снимается с цикла и `listener` закрывается в `close()`.
+        Приём уже идёт или писатель закрыт — `ValueError`."""
     @property
     def subscribers(self) -> int:
         """Число подписчиков; ушедшие убираются при `publish`."""
@@ -55,7 +65,8 @@ class Publisher:
     @property
     def closed(self) -> bool: ...
     def close(self) -> None:
-        """Закрыть сокеты подписчиков и отпустить снимки писателя; идемпотентен. Windows:
+        """Остановить приём подключений, закрыть сокеты подписчиков и `listener`, отпустить снимки
+        писателя; идемпотентен. Windows:
         неподтверждённые снимки закрываются, читатели их не получат."""
     def __enter__(self) -> Publisher: ...
     def __exit__(self, *exc: object) -> None: ...

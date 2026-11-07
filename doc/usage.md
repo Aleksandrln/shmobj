@@ -146,10 +146,9 @@ pub.publish({"n": 1})                       # False — читатель отс�
 
 ```python
 # писатель
-listener = channel.listen("/run/app/snapshots.sock")   # Windows: ("127.0.0.1", порт)
 pub = channel.Publisher()
-# по готовности listener (selectors или loop.add_reader):
-pub.add(listener.accept()[0])
+pub.accept_in_thread(channel.listen("/run/app/snapshots.sock"))  # Windows: ("127.0.0.1", порт)
+# в asyncio, без потока: pub.accept_in_loop(channel.listen(...))
 pub.publish(data)                                      # одна сборка на всех
 
 # воркер: lifespan startup (Uvicorn) или post_worker_init (Gunicorn)
@@ -167,7 +166,7 @@ sub.attach()                                           # в цикле asyncio; 
 |---|---|
 | `channel_sync.py` | Без asyncio: ожидание сокета в `selectors` (подходит `select`, `poll` — у концов есть `fileno()`), затем `receive()` |
 | `channel_async.py` | asyncio: `asyncio.create_subprocess_exec(..., **spawn_kwargs(...))`, `attach(callback)`, ожидание `asyncio.Event` |
-| `channel_fanout.py` | Один писатель и три читателя-процесса: `listen`/`accept` → `Publisher.add`, читатели — `connect` |
+| `channel_fanout.py` | Один писатель и три читателя-процесса: `listen` → `Publisher.accept_in_thread`, читатели — `connect` |
 | `writer.py` | Писатель для обоих: `publish` в цикле с `time.sleep` или из корутины (`--async`); выход по `BrokenPipeError`, когда читатель закрыл канал |
 
 ### Отладчик
