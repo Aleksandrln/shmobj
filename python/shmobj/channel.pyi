@@ -83,6 +83,10 @@ class Subscriber:
         """Разобрать очередь без ожидания: True — `latest` сменился. Конец канала закрывает сокет.
         Linux: незапечатанный снимок — `ValueError`, `latest` прежний. Windows: снимок, который
         писатель уже закрыл (вышел), пропускается."""
+    def wait(self, timeout: float | None = None) -> bool:
+        """Ждать нового снимка, блокируя поток (сон в `selectors`, без опроса): True — `latest` сменился;
+        False — истёк `timeout` (None — без срока) или канал закрыт (`closed`). Исключения — как у
+        `receive`. После `attach` (до `detach`) — `ValueError`."""
     def attach(self, callback: Callable[[Value], None] | None = None, *,
                loop: asyncio.AbstractEventLoop | None = None) -> None:
         """Принимать снимки в цикле asyncio (`loop` — по умолчанию текущий): `callback(latest)` на каждый новый.

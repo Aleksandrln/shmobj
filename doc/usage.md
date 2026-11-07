@@ -122,7 +122,7 @@ pub_end, sub_end = channel.socketpair()
 child = subprocess.Popen([sys.executable, "writer.py", str(pub_end.fileno())], **channel.spawn_kwargs(pub_end))
 pub_end.close()
 sub = channel.Subscriber(sub_end)
-sub.attach(lambda root: print(root["n"]))   # в работающем цикле asyncio; без него — sub.receive()
+sub.attach(lambda root: print(root["n"]))   # в работающем цикле asyncio; без него — sub.wait()
 
 # писатель (writer.py)
 pub = channel.Publisher(socket.socket(fileno=int(sys.argv[1])))
@@ -164,7 +164,7 @@ sub.attach()                                           # в цикле asyncio; 
 
 | Файл | Режим |
 |---|---|
-| `channel_sync.py` | Без asyncio: ожидание сокета в `selectors` (подходит `select`, `poll` — у концов есть `fileno()`), затем `receive()` |
+| `channel_sync.py` | Без asyncio: блокирующий `wait()`; несколько сокетов — свой `selectors` по `fileno()`, затем `receive()` |
 | `channel_async.py` | asyncio: `asyncio.create_subprocess_exec(..., **spawn_kwargs(...))`, `attach(callback)`, ожидание `asyncio.Event` |
 | `channel_fanout.py` | Один писатель и три читателя-процесса: `listen` → `Publisher.accept_in_thread`, читатели — `connect` |
 | `writer.py` | Писатель для обоих: `publish` в цикле с `time.sleep` или из корутины (`--async`); выход по `BrokenPipeError`, когда читатель закрыл канал |

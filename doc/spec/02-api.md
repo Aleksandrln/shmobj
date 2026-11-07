@@ -160,9 +160,10 @@ sub.latest["vms"].get_many([101, 102], None)         # корень послед
 | `Subscriber(sock, *, verify=False)` | Владеет `sock`. `verify` передаётся в `loads`/`attach` для каждого снимка |
 | `Subscriber.latest` | Корень последнего принятого снимка, `None` — снимков не было. Переживает закрытие канала |
 | `Subscriber.receive() -> bool` | Разбирает очередь без ожидания и берёт последний снимок, прочие закрывает (Windows — подтверждает). `True` — `latest` сменился. Конец канала закрывает сокет. Linux: незапечатанный снимок — `ValueError`, `latest` прежний |
+| `Subscriber.wait(timeout=None) -> bool` | Блокирующее ожидание для кода без asyncio: `receive()`, пока `latest` не сменится, между попытками — сон в своём `selectors` на сокете. `True` — новый снимок; `False` — истёк `timeout` или канал закрыт. После `attach` — `ValueError` |
 | `Subscriber.attach(callback=None, *, loop=None)` | По умолчанию текущий цикл. `loop.add_reader`, а в цикле без него (ProactorEventLoop, Windows) — задача, которая ждёт `sock_recv(sock, 0)` (IOCP завершает его, когда есть данные или конец). `receive()` по готовности сокета, `callback(latest)` на каждый новый снимок. Исключения уходят в обработчик исключений цикла, приём продолжается. Конец канала снимает сокет с цикла |
 | `Subscriber.detach()` | Снять с цикла, сокет открыт |
-| `closed`, `close()`, `__enter__`/`__exit__` | У обоих концов; `close()` идемпотентен. `fileno()` — у `Subscriber` |
+| `closed`, `close()`, `__enter__`/`__exit__` | У обоих концов; `close()` идемпотентен. `fileno()` — у `Subscriber`: ждать несколько сокетов в своём `select`/`selectors`, затем `receive()` |
 
 Очередь у каждого подписчика своя и ограничена: на Linux — `sndbuf` (каждое непрочитанное
 сообщение держит свой memfd), на Windows — 4 неподтверждённых снимка. Писатель не копит снимки, а

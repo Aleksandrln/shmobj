@@ -9,7 +9,7 @@
 | 2 | Привязки: чтение | Готово функционально: `Segment`, `FrozenDict`, `FrozenList`, срезы, `keys/values/items`, `get_many`, `iter_*`, `materialize`, `==`, `repr`, отказ `hash`/`pickle`, `loads`/`validate` |
 | 3 | Сборка | Готово: `Writer` + обход Python-объектов, `dumps_into` (сборка в буфер вызывающего; через него `create` и канал), дедупликация, общие KEYTABLE, типизированные списки, пути в ошибках, циклы. Байты совпадают с эталоном |
 | 4 | Жизненный цикл | Готово базово: `create`/`attach`/`close`/`unlink`, `resource_tracker` 3.11–3.12, `track=False` 3.13+. На Windows/macOS не проверялось локально (только CI) |
-| 4a | Канал снимков | Готово: `shmobj.channel` (`02-api.md` §6): Linux — memfd, Windows — именованные снимки с подтверждением (проверяется в CI); один снимок на нескольких подписчиков (`Publisher.add`, `listen`/`connect`, приём подключений — `accept_in_thread` / `accept_in_loop`); на macOS `SUPPORTED = False` |
+| 4a | Канал снимков | Готово: `shmobj.channel` (`02-api.md` §6): Linux — memfd, Windows — именованные снимки с подтверждением (проверяется в CI); один снимок на нескольких подписчиков (`Publisher.add`, `listen`/`connect`, приём подключений — `accept_in_thread` / `accept_in_loop`); читатель без asyncio ждёт блокирующим `Subscriber.wait`; на macOS `SUPPORTED = False` |
 | 5 | Производительность | Не начато |
 | 6 | Выпуск | Не начато |
 

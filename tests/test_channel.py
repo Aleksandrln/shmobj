@@ -346,6 +346,36 @@ def _wait_receive(sub, n):
 
 
 @needs_channel
+def test_wait(ends):
+    pub, sub = ends
+    started = time.monotonic()
+    assert not sub.wait(0.1)  # снимков нет — истёк срок
+    assert time.monotonic() - started >= 0.1
+    threading.Timer(0.1, pub.publish, [{"n": 1}]).start()
+    assert sub.wait(5) and sub.latest["n"] == 1  # проснулся на снимке из другого потока
+    pub.publish({"n": 2})
+    pub.publish({"n": 3})
+    assert sub.wait(0) and sub.latest["n"] == 3  # готовый снимок — без ожидания, последний из очереди
+    threading.Timer(0.1, pub.close).start()
+    assert not sub.wait() and sub.closed  # конец канала будит ожидание без срока
+    assert sub.latest["n"] == 3
+
+
+@needs_channel
+def test_wait_after_attach(ends):
+    _pub, sub = ends
+
+    async def main():
+        sub.attach()
+        with pytest.raises(ValueError):
+            sub.wait(0)
+        sub.detach()
+        assert not sub.wait(0)
+
+    asyncio.run(main())
+
+
+@needs_channel
 def test_accept_in_thread(mode, tmp_path):
     pub_cls, sub_cls = CLASSES[mode]
     pub = pub_cls(name=f"shmobj-test-{os.getpid()}-thread-{mode}")

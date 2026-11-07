@@ -23,6 +23,7 @@ import selectors
 import socket
 import sys
 import threading
+import time
 from collections.abc import Callable
 from typing import Any
 
@@ -141,13 +142,14 @@ class _End:
 
 
 class _Subscriber(_End):
-    """Общее у читателей: `latest` и приём в цикле asyncio; `receive` — у платформы."""
+    """Общее у читателей: `latest`, ожидание `wait` и приём в цикле asyncio; `receive` — у платформы."""
 
     def __init__(self, sock: socket.socket, *, verify: bool = False) -> None:
         super().__init__(sock)
         self._verify = verify
         self._latest: Any = None
         self._reader = None  # (цикл asyncio, дескриптор на нём, задача ожидания или None)
+        self._selector: selectors.BaseSelector | None = None  # для wait, создаётся при первом ожидании
 
     @property
     def latest(self) -> Any:
@@ -156,6 +158,24 @@ class _Subscriber(_End):
 
     def receive(self) -> bool:
         raise NotImplementedError
+
+    def wait(self, timeout: float | None = None) -> bool:
+        """Ждать нового снимка, блокируя поток: True — `latest` сменился; False — истёк `timeout`
+        или канал закрыт (`closed`). Не вместе с `attach`."""
+        if self._reader is not None:
+            raise ValueError("shmobj.channel: читатель принимает в цикле asyncio (attach)")
+        deadline = None if timeout is None else time.monotonic() + timeout
+        while not self.receive():
+            if self.closed:
+                return False
+            left = None if deadline is None else deadline - time.monotonic()
+            if left is not None and left <= 0:
+                return False
+            if self._selector is None:
+                self._selector = selectors.DefaultSelector()
+                self._selector.register(self._sock, selectors.EVENT_READ)
+            self._selector.select(left)  # спит в ядре, пока не придёт снимок или конец канала
+        return True
 
     def detach(self) -> None:
         """Снять сокет с цикла asyncio; сокет остаётся открытым."""
@@ -170,6 +190,9 @@ class _Subscriber(_End):
 
     def close(self) -> None:
         self.detach()
+        if self._selector is not None:
+            self._selector.close()
+            self._selector = None
         self._sock.close()
 
     def _on_readable(self, callback: Callable[[Any], None] | None) -> None:

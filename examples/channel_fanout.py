@@ -4,7 +4,6 @@
 получает последний снимок и выходит на снимке TICKS; писатель выходит вслед за всеми читателями.
 """
 import os
-import selectors
 import subprocess
 import sys
 import tempfile
@@ -20,13 +19,12 @@ WINDOWS = sys.platform == "win32"  # Windows — TCP на loopback, Linux — ф
 def reader(address) -> None:
     # channel.connect — возвращает сокет, подключённый к address писателя; Subscriber забирает его себе и закроет на выходе.
     # Последний снимок писатель отправляет сразу при подключении.
-    with channel.Subscriber(channel.connect(address)) as sub, selectors.DefaultSelector() as sel:
-        # Subscriber отдаёт fileno, поэтому его можно ждать селектором: сокет читаем — пришёл снимок или конец канала.
-        sel.register(sub, selectors.EVENT_READ)
-        # closed — писатель закрыл канал. receive() разбирает очередь без ожидания: True — sub.latest
-        # сменился на свежий снимок (корень, FrozenDict поверх общей памяти, без копирования).
-        while not sub.closed and not (sub.receive() and sub.latest["tick"] >= TICKS):
-            sel.select(timeout=1)
+    with channel.Subscriber(channel.connect(address)) as sub:
+        # wait() спит, пока не придёт снимок: True — sub.latest сменился на свежий (корень, FrozenDict поверх
+        # общей памяти, без копирования); False — писатель закрыл канал.
+        while sub.wait():
+            if sub.latest["tick"] >= TICKS:
+                break
         sys.stdout.write(f"читатель {os.getpid()}: tick={sub.latest['tick']}\n")  # одной записью: строки не смешаются
 
 
