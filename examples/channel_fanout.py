@@ -18,7 +18,7 @@ WINDOWS = sys.platform == "win32"  # Windows — TCP на loopback, Linux — ф
 
 
 def reader(address) -> None:
-    # connect — сокет, подключённый к listen писателя; Subscriber забирает его себе и закроет на выходе.
+    # channel.connect — возвращает сокет, подключённый к address писателя; Subscriber забирает его себе и закроет на выходе.
     # Последний снимок писатель отправляет сразу при подключении.
     with channel.Subscriber(channel.connect(address)) as sub, selectors.DefaultSelector() as sel:
         # Subscriber отдаёт fileno, поэтому его можно ждать селектором: сокет читаем — пришёл снимок или конец канала.
@@ -30,21 +30,28 @@ def reader(address) -> None:
         sys.stdout.write(f"читатель {os.getpid()}: tick={sub.latest['tick']}\n")  # одной записью: строки не смешаются
 
 
+def _create_process(mode: str, address):
+    return subprocess.Popen([sys.executable, __file__, mode, address])
+
+
 def writer() -> None:
     # listen — слушающий сокет: путь AF_UNIX (файла ещё не должно быть) или TCP на loopback, порт 0 — любой свободный.
     # Publisher() без сокета — писатель без подписчиков; на выходе закроет сокеты подписчиков и отпустит снимки.
     with tempfile.TemporaryDirectory() as tmp, \
             channel.listen(("127.0.0.1", 0) if WINDOWS else os.path.join(tmp, "snapshots.sock")) as listener, \
             channel.Publisher() as pub:
-        listener.setblocking(False)  # accept не ждёт: нет новых подключений — BlockingIOError
+        # не ждем. нет новых подключений raise BlockingIOError
+        listener.setblocking(False)
         address = listener.getsockname()  # путь сокета или (host, port) с выданным портом
-        arg = str(address[1]) if WINDOWS else address
-        readers = [subprocess.Popen([sys.executable, __file__, "--reader", arg]) for _ in range(READERS)]
+        readers = [
+            _create_process(mode="--reader", address=str(address[1]) if WINDOWS else address) for _ in
+            range(READERS)
+        ]
         tick = 0
         while any(r.poll() is None for r in readers):
             while True:  # все, кто подключился с прошлого снимка
                 try:
-                    # add — подписать соединение (Publisher им владеет); последний снимок уходит ему сразу.
+                    # add — привязать соеденение. В соеденение будет сразу же отправлено имя последнего снимка.
                     pub.add(listener.accept()[0])
                 except BlockingIOError:
                     break
