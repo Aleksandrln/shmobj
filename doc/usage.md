@@ -137,6 +137,14 @@ pub.publish({"n": 1})                       # False — читатель отс�
   `close()` или выхода, теряется. Печатей нет — снимок не меняет только сам писатель.
 - На macOS `channel.SUPPORTED` ложно, конструкторы дают `NotImplementedError`.
 
+Готовые примеры в `examples/` (запуск: `python examples/channel_sync.py`):
+
+| Файл | Режим |
+|---|---|
+| `channel_sync.py` | Без asyncio: ожидание сокета в `selectors` (подходит `select`, `poll` — у концов есть `fileno()`), затем `receive()` |
+| `channel_async.py` | asyncio: `asyncio.create_subprocess_exec(..., **spawn_kwargs(...))`, `attach(callback)`, ожидание `asyncio.Event` |
+| `writer.py` | Писатель для обоих: `publish` в цикле с `time.sleep` или из корутины (`--async`); выход по `BrokenPipeError`, когда читатель закрыл канал |
+
 ### Отладчик
 
 PyCharm и VS Code (debugpy) раскрывают `FrozenDict`, `FrozenList` и `keys()`/`values()`/`items()`
