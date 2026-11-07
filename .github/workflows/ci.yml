@@ -22,7 +22,7 @@ jobs:
       - uses: actions/checkout@v4
       - uses: actions/setup-python@v5
         with: { python-version: "${{ matrix.python }}" }
-      - run: pip install maturin pytest hypothesis xxhash
+      - run: pip install maturin pytest hypothesis xxhash pydevd-pycharm
       - run: pytest reference/
       - run: maturin build --release -o dist && pip install --no-index --find-links dist shmobj
       - run: pytest
