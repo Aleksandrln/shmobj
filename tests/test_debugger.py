@@ -28,17 +28,31 @@ def children(v):
 def test_dict_children_resolve_back(root):
     resolver, d = children(root)
     assert type(resolver).__name__ == "FrozenDictResolver"
-    assert list(d) == ["'vms'", "'l'", "b'raw'", str(2**70), "__len__"]
+    assert list(d) == ["'vms'", "'l'", "b'raw'", str(2**70), "methods", "__len__"]
     assert d["__len__"] == 4
     for name, v in d.items():
-        if name != "__len__":
+        if name not in ("__len__", "methods"):
             assert resolver.resolve(root, name) == v
+
+
+@pytest.mark.parametrize("key", ["vms", "l"])
+def test_methods(root, key):
+    proxy = root[key]
+    _, d = children(proxy)
+    methods = d["methods"]
+    resolver, sigs = children(methods)
+    assert set(sigs) == {n for n in dir(proxy) if not n.startswith("_")}
+    assert sigs["get_many"].startswith("(") and " — Значения" in sigs["get_many"]
+    assert resolver.resolve(methods, "materialize") == sigs["materialize"]
+    assert pydevd_xml._str_from_providers(methods, *pydevd_xml.get_type(methods)[:2]).startswith(
+        "count, get_many" if key == "l" else "get, get_many"
+    )
 
 
 def test_dict_pages(root):
     vms = root["vms"]
     resolver, d = children(vms)
-    assert list(d)[:2] == ["100", "101"] and len(d) == 101  # страница PyCharm — 100 детей
+    assert list(d)[:2] == ["100", "101"] and len(d) == 102  # страница PyCharm — 100 детей, плюс methods и __len__
     assert resolver.resolve(vms, "100") == vms[100]
     assert list(resolver.get_dictionary(VariableWithOffset(vms, 600)))[:1] == ["700"]
 
@@ -47,7 +61,7 @@ def test_dict_pages(root):
 def test_views_by_index(root, view):
     v = getattr(root["vms"], view)()
     resolver, d = children(v)
-    assert list(d)[:2] == ["000", "001"] and d["__len__"] == 683
+    assert list(d)[:2] == ["000", "001"] and d["__len__"] == 683 and "methods" not in d
     assert resolver.resolve(v, "001") == list(v)[1]
 
 
