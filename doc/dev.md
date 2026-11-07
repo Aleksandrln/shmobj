@@ -6,7 +6,7 @@
 
 ```bash
 python3 -m venv .venv && . .venv/bin/activate
-pip install maturin pytest hypothesis xxhash
+pip install maturin pytest hypothesis xxhash pydevd-pycharm
 maturin develop --release        # собрать shmobj._core и поставить пакет в режиме editable
 ```
 
@@ -51,4 +51,8 @@ pytest                            # tests/: golden, сверка с эталон
 - Зависимость `zerocopy` не используется: заголовок разбирается через `from_le_bytes` (допустимая замена по `doc/spec/06-references.md`).
 - `criterion` убран из dev-зависимостей до появления `benches/`.
 - `shmobj-py` не зависит от `xxhash-rust` напрямую: хэш считается в `shmobj-core`.
+- `pyproject.toml`: `python-packages = ["pydevd_plugins"]` — плагин отладчика из `python/pydevd_plugins`
+  едет в колесо рядом с `shmobj`. В `pydevd_plugins/` и `extensions/` нет `__init__.py`: пакеты
+  принадлежат pydevd, плагин — только часть пространства имён. Проверка — `tests/test_debugger.py`
+  (нужен `pydevd-pycharm`, без него тест пропускается).
 - CI: задача `fuzz-smoke` убрана до появления `fuzz/` (cargo-fuzz). Остальные задачи — как в заготовке.

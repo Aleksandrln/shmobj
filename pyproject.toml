@@ -10,12 +10,13 @@ description = "Read-only dict/list/scalars in shared memory without deserializat
 classifiers = ["Programming Language :: Rust", "Programming Language :: Python :: Implementation :: CPython"]
 
 [project.optional-dependencies]
-test = ["pytest", "hypothesis", "pytest-benchmark", "xxhash"]
+test = ["pytest", "hypothesis", "pytest-benchmark", "xxhash", "pydevd-pycharm"]
 
 [tool.maturin]
 manifest-path = "crates/shmobj-py/Cargo.toml"
 python-source = "python"
 module-name = "shmobj._core"
+python-packages = ["pydevd_plugins"]
 features = ["pyo3/extension-module"]
 
 [tool.pytest.ini_options]

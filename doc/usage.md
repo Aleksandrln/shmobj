@@ -10,6 +10,7 @@ shmobj/_shm.py           # SharedMemory, resource_tracker
 shmobj/channel.py        # канал снимков (Linux, Windows)
 shmobj/_core.abi3.so     # скомпилированные shmobj-core + shmobj-py (на Windows — _core.pyd)
 shmobj/__init__.pyi, channel.pyi, py.typed   # типы и докстринги для IDE
+pydevd_plugins/extensions/pydevd_plugin_shmobj.py   # содержимое прокси в отладчике PyCharm/VS Code
 ```
 
 Rust-часть компилируется один раз, при сборке колеса, в нативную библиотеку-модуль расширения
@@ -135,6 +136,14 @@ pub.publish({"n": 1})                       # False — читатель отс�
 - Windows: очередь — 4 неподтверждённых снимка; снимок, который писатель не успел отдать до
   `close()` или выхода, теряется. Печатей нет — снимок не меняет только сам писатель.
 - На macOS `channel.SUPPORTED` ложно, конструкторы дают `NotImplementedError`.
+
+### Отладчик
+
+PyCharm и VS Code (debugpy) раскрывают `FrozenDict`, `FrozenList` и `keys()`/`values()`/`items()`
+словаря как обычные контейнеры: дети — по ключам и индексам, значение — начало содержимого. Делает
+это плагин pydevd из колеса (`pydevd_plugins/extensions/pydevd_plugin_shmobj.py`): pydevd находит
+его в `sys.path` сам, настраивать IDE не нужно. Загружается один раз за сеанс отладки — после
+установки колеса сеанс перезапустить. Представления других `Mapping` плагин не меняет.
 
 Правила закрытия и удаления сегмента — в [README](../README.md#жизненный-цикл-сегмента),
 полная семантика — [spec/02-api.md](spec/02-api.md).
