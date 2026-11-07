@@ -45,14 +45,15 @@ class Publisher:
         префикс имён SharedMemory (`<name>-<pid>-<номер>`)."""
     def add(self, sock: socket.socket) -> None:
         """Подписать сокет; последний опубликованный снимок уходит ему сразу. Писатель закрыт — `ValueError`."""
-    def accept_in_thread(self, listener: socket.socket) -> None:
-        """Подписывать (`add`) подключения к `listener` (`listen`) в фоновом потоке. Владеет `listener`:
+    def accept_in_thread(self, listener: socket.socket) -> Any:
+        """Подписывать (`add`) подключения к `listener` (`listen`) в фоновом потоке. Возвращает
+        `listener.getsockname()` — адрес для `connect` читателей. Владеет `listener`:
         поток останавливается и `listener` закрывается в `close()`. `add`, `publish` и `close` — под
         замком, звать их можно из любого потока. Приём уже идёт или писатель закрыт — `ValueError`."""
-    def accept_in_loop(self, listener: socket.socket, *, loop: asyncio.AbstractEventLoop | None = None) -> None:
+    def accept_in_loop(self, listener: socket.socket, *, loop: asyncio.AbstractEventLoop | None = None) -> Any:
         """Подписывать (`add`) подключения к `listener` (`listen`) в цикле asyncio (`loop` — по умолчанию
         текущий), без потока: `loop.add_reader`, в цикле без него (ProactorEventLoop) — задача с
-        `sock_accept`. Владеет `listener`: приём снимается с цикла и `listener` закрывается в `close()`.
+        `sock_accept`. Возвращает адрес, как `accept_in_thread`. Владеет `listener`: приём снимается с цикла и `listener` закрывается в `close()`.
         Приём уже идёт или писатель закрыт — `ValueError`."""
     @property
     def subscribers(self) -> int:

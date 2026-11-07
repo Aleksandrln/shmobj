@@ -147,8 +147,8 @@ pub.publish({"n": 1})                       # False — читатель отс�
 ```python
 # писатель
 pub = channel.Publisher()
-pub.accept_in_thread(channel.listen("/run/app/snapshots.sock"))  # Windows: ("127.0.0.1", порт)
-# в asyncio, без потока: pub.accept_in_loop(channel.listen(...))
+address = pub.accept_in_thread(channel.listen("/run/app/snapshots.sock"))  # Windows: ("127.0.0.1", порт)
+# в asyncio, без потока: pub.accept_in_loop(channel.listen(...)); возвращает адрес для connect
 pub.publish(data)                                      # одна сборка на всех
 
 # воркер: lifespan startup (Uvicorn) или post_worker_init (Gunicorn)

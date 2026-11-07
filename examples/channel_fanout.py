@@ -39,10 +39,10 @@ def writer() -> None:
     with tempfile.TemporaryDirectory() as tmp, channel.Publisher() as pub:
         # listen — слушающий сокет: путь AF_UNIX (файла ещё не должно быть) или TCP на loopback, порт 0 — любой свободный.
         listener = channel.listen(("127.0.0.1", 0) if WINDOWS else os.path.join(tmp, "snapshots.sock"))
-        address = listener.getsockname()  # путь сокета или (host, port) с выданным портом
         # Publisher забирает listener и в своём потоке подписывает (add) каждое подключение:
         # новому читателю сразу уходит последний снимок. В asyncio — accept_in_loop, без потока.
-        pub.accept_in_thread(listener)
+        # Возвращает адрес для connect: путь сокета или (host, port) с выданным портом.
+        address = pub.accept_in_thread(listener)
         readers = [
             _create_process(mode="--reader", address=str(address[1]) if WINDOWS else address) for _ in
             range(READERS)

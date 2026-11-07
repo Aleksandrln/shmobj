@@ -253,7 +253,7 @@ class _Publisher:
         self._subs.remove(sub)
         self._drop(sub)
 
-    def _take_listener(self, listener: socket.socket) -> None:
+    def _take_listener(self, listener: socket.socket) -> Any:
         with self._lock:
             if self._closed:
                 raise ValueError("shmobj.channel: писатель закрыт")
@@ -261,6 +261,7 @@ class _Publisher:
                 raise ValueError("shmobj.channel: подключения уже принимаются")
             listener.setblocking(False)
             self._listener = listener
+            return listener.getsockname()
 
     def _accept_all(self, listener: socket.socket) -> None:
         """Подписать все ожидающие подключения, не блокируя."""
@@ -284,10 +285,10 @@ class _Publisher:
             while not any(key.fileobj is wake for key, _ in sel.select()):
                 self._accept_all(listener)
 
-    def accept_in_thread(self, listener: socket.socket) -> None:
-        """Подписывать подключения к `listener` (`listen`) в фоновом потоке. Владеет `listener`: поток
-        останавливается и `listener` закрывается в `close()`."""
-        self._take_listener(listener)
+    def accept_in_thread(self, listener: socket.socket) -> Any:
+        """Подписывать подключения к `listener` (`listen`) в фоновом потоке; вернуть его адрес для `connect`.
+        Владеет `listener`: поток останавливается и `listener` закрывается в `close()`."""
+        address = self._take_listener(listener)
         wake_r, wake_w = socket.socketpair()
         thread = threading.Thread(target=self._accept_loop, args=(listener, wake_r),
                                   name=f"{self._name}-accept", daemon=True)
@@ -299,6 +300,7 @@ class _Publisher:
 
         self._stop_accept = stop
         thread.start()
+        return address
 
     async def _accept_task(self, loop, listener: socket.socket) -> None:
         while True:
@@ -312,20 +314,21 @@ class _Publisher:
                 conn.close()
                 return
 
-    def accept_in_loop(self, listener: socket.socket, *, loop=None) -> None:
+    def accept_in_loop(self, listener: socket.socket, *, loop=None) -> Any:
         """Подписывать подключения к `listener` (`listen`) в цикле asyncio (`loop` — по умолчанию текущий),
-        без потока. Владеет `listener`: приём снимается с цикла и `listener` закрывается в `close()`."""
+        без потока; вернуть адрес `listener` для `connect`. Владеет `listener`: приём снимается с цикла и `listener` закрывается в `close()`."""
         if loop is None:
             import asyncio
 
             loop = asyncio.get_running_loop()
-        self._take_listener(listener)
+        address = self._take_listener(listener)
         fd = listener.fileno()
         try:
             loop.add_reader(fd, self._accept_all, listener)
             self._stop_accept = lambda: loop.remove_reader(fd)
         except NotImplementedError:  # ProactorEventLoop (Windows) не умеет add_reader
             self._stop_accept = loop.create_task(self._accept_task(loop, listener)).cancel
+        return address
 
     def publish(self, obj: Any, *, dedup: bool = True, checksum: bool = True) -> bool:
         """Собрать снимок `obj` один раз и отправить всем подписчикам. False — хотя бы у одного очередь

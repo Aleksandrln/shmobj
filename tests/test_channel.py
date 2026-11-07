@@ -351,10 +351,11 @@ def test_accept_in_thread(mode, tmp_path):
     pub = pub_cls(name=f"shmobj-test-{os.getpid()}-thread-{mode}")
     listener = _listen(mode, tmp_path)
     pub.publish({"n": 1})
-    pub.accept_in_thread(listener)
+    address = pub.accept_in_thread(listener)
+    assert address == listener.getsockname()
     with pytest.raises(ValueError):  # приём уже идёт
         pub.accept_in_thread(listener)
-    subs = [sub_cls(_connect(mode, listener.getsockname())) for _ in range(3)]
+    subs = [sub_cls(_connect(mode, address)) for _ in range(3)]
     try:
         for sub in subs:
             _wait_receive(sub, 1)  # последний снимок — сразу при подключении, без нового publish
@@ -386,9 +387,10 @@ def test_accept_in_loop(mode, tmp_path):
         with pub_cls(name=f"shmobj-test-{os.getpid()}-loop-{mode}") as pub:
             listener = _listen(mode, tmp_path)
             pub.publish({"n": 1})
-            pub.accept_in_loop(listener)
+            address = pub.accept_in_loop(listener)
+            assert address == listener.getsockname()
             got = asyncio.Queue()
-            subs = [sub_cls(_connect(mode, listener.getsockname())) for _ in range(2)]
+            subs = [sub_cls(_connect(mode, address)) for _ in range(2)]
             for sub in subs:
                 sub.attach(lambda root: got.put_nowait(root["n"]))
             assert [await asyncio.wait_for(got.get(), 5) for _ in subs] == [1, 1]
