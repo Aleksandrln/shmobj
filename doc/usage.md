@@ -7,8 +7,9 @@
 ```
 shmobj/__init__.py       # Python-обёртка: реэкспорт, create/attach
 shmobj/_shm.py           # SharedMemory, resource_tracker
+shmobj/channel.py        # канал снимков (Linux, Windows)
 shmobj/_core.abi3.so     # скомпилированные shmobj-core + shmobj-py (на Windows — _core.pyd)
-shmobj/__init__.pyi, py.typed
+shmobj/__init__.pyi, channel.pyi, py.typed   # типы и докстринги для IDE
 ```
 
 Rust-часть компилируется один раз, при сборке колеса, в нативную библиотеку-модуль расширения
@@ -46,6 +47,20 @@ maturin build --release --zig --compatibility manylinux2014 --out dist
 собирает задача `wheels` в CI (`PyO3/maturin-action`, Linux — в manylinux-контейнере,
 x86_64/aarch64, Windows x64, macOS arm64); результат — артефакты `wheel-*` прогона.
 
+Колесо Windows x64 из Linux (mingw-w64, без Windows и Python под ним):
+
+```bash
+rustup target add x86_64-pc-windows-gnu
+apt-get install gcc-mingw-w64-x86-64
+maturin build --release --strip --target x86_64-pc-windows-gnu -o dist   # shmobj-*-cp311-abi3-win_amd64.whl
+```
+
+`_core.pyd` зависит только от `python3.dll` и системных dll (`objdump -p`). `--zig` для этой
+цели не годится: maturin 1.16 пишет в `.def` экспорт `PyInit_shmobj._core`, и линковка падает.
+
+Подсказки типов и докстринги для IDE — `__init__.pyi` и `channel.pyi`: PyCharm и Pylance берут их,
+а не `__doc__` модуля расширения. Докстринги `///` в `crates/shmobj-py` видны в `help()`.
+
 Для разработки: `maturin develop --release` — сборка и установка в активный venv в режиме editable
 (см. [dev.md](dev.md)).
 
@@ -79,7 +94,8 @@ if __name__ == "__main__":
 - Пакетный доступ быстрее поэлементного: `get_many(keys, default)`, `iter_values()`, `iter_items()`.
 - `materialize()` — копия в обычные `dict`/`list`.
 - Без общей памяти: `shmobj.dumps(obj) -> bytes`, `shmobj.loads(buf)` поверх любого буфера
-  (`bytes`, `mmap`, `memoryview`).
+  (`bytes`, `mmap`, `memoryview`). `shmobj.dumps_into(obj, alloc)` пишет сегмент в буфер
+  `alloc(size)` (например, `mmap` файла нужного размера) без промежуточных `bytes`.
 - Проверка данных. Без флагов `loads`/`attach` проверяют только заголовок, остальное — при каждом
   чтении: границы, типы узлов, пост-порядок. Испорченный сегмент даёт `FormatError` при обращении
   к испорченному месту, без падения процесса. `verify=True` дополнительно сверяет контрольную сумму
@@ -88,6 +104,37 @@ if __name__ == "__main__":
   после него `FormatError` при чтении невозможен.
 - Допустимые типы: `dict`, `list`, `tuple` (читается как список), `None`, `bool`, `int` (любой
   длины), `float`, `str`, `bytes`; ключи — скаляры. Иное — `TypeError` с путём до значения.
+
+### Канал снимков (Linux, Windows)
+
+Писатель периодически отдаёт снимок целиком, читатель держит последний. На Linux снимок —
+запечатанный memfd, дескриптор идёт по сокету; на Windows — именованная SharedMemory, по сокету идёт
+имя, читатель подтверждает приём. После падения любой из сторон в ОС ничего не остаётся.
+
+```python
+import socket, subprocess, sys
+from shmobj import channel
+
+# читатель (родитель)
+pub_end, sub_end = channel.socketpair()
+child = subprocess.Popen([sys.executable, "writer.py", str(pub_end.fileno())], **channel.spawn_kwargs(pub_end))
+pub_end.close()
+sub = channel.Subscriber(sub_end)
+sub.attach(lambda root: print(root["n"]))   # в работающем цикле asyncio; без него — sub.receive()
+
+# писатель (writer.py)
+pub = channel.Publisher(socket.socket(fileno=int(sys.argv[1])))
+pub.publish({"n": 1})                       # False — читатель отстал, снимок пропущен
+```
+
+- `sub.latest` — корень последнего снимка (`FrozenDict`, …), `None` до первого; прежние
+  освобождаются, когда отпущены их прокси.
+- Выход писателя закрывает канал у читателя (`sub.closed`), `latest` остаётся. Новый писатель — новая пара.
+- `spawn_kwargs(sock)` — аргументы `Popen` для наследования сокета: `pass_fds` на Linux,
+  `startupinfo` с `handle_list` на Windows.
+- Windows: очередь — 4 неподтверждённых снимка; снимок, который писатель не успел отдать до
+  `close()` или выхода, теряется. Печатей нет — снимок не меняет только сам писатель.
+- На macOS `channel.SUPPORTED` ложно, конструкторы дают `NotImplementedError`.
 
 Правила закрытия и удаления сегмента — в [README](../README.md#жизненный-цикл-сегмента),
 полная семантика — [spec/02-api.md](spec/02-api.md).

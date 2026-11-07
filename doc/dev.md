@@ -26,13 +26,19 @@ pytest                            # tests/: golden, сверка с эталон
 Перегенерация `golden/*.bin` эталоном: `python3 golden/gen_golden.py`.
 Формат меняется только через `doc/spec/03-format.md` и `reference/shmobj_ref.py` одновременно.
 
+## Порядок в модуле
+
+Константы — сразу после импортов. Функция или метод стоит над тем, что её вызывает:
+вызываемая из одного места — прямо над ним, общая — над первым вызовом, несколько — в порядке
+вызова. Образец — `python/shmobj/channel.py`.
+
 ## Раскладка
 
 | Путь | Содержание |
 |---|---|
 | `crates/shmobj-core` | Формат без Python и без `unsafe`: `format/` (общее с будущим RW), `ro/` (чтение, сборка, `validate`) |
 | `crates/shmobj-py` | cdylib `shmobj._core` (PyO3): `Segment`, прокси, итераторы, сборка из Python-объектов; весь `unsafe` здесь |
-| `python/shmobj` | Пакет: реэкспорт `_core`, регистрация в ABC, `create`/`attach` поверх `SharedMemory` (`_shm.py`), `.pyi` |
+| `python/shmobj` | Пакет: реэкспорт `_core`, регистрация в ABC, `create`/`attach` поверх `SharedMemory` (`_shm.py`), канал снимков (`channel.py`), `.pyi` |
 | `tests/` | pytest; `conftest.py` добавляет `reference/` и `golden/` в `sys.path` |
 | `reference/`, `golden/` | Эталон и эталонные сегменты из ТЗ |
 | `doc/spec/` | ТЗ (ссылки внутри поправлены под эту раскладку) |

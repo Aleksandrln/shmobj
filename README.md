@@ -21,6 +21,10 @@ seg.unlink()
 
 Без общей памяти: `shmobj.dumps(obj) -> bytes`, `shmobj.loads(buf)` поверх `bytes`/`mmap`/любого буфера.
 
+Канал снимков (Linux, Windows): `shmobj.channel.Publisher.publish(obj)` в одном процессе,
+`Subscriber.latest` в другом — на Linux запечатанный memfd по сокету, на Windows именованный снимок
+с подтверждением; после падения сторон в ОС ничего не остаётся ([doc/usage.md](doc/usage.md#канал-снимков-linux-windows)).
+
 ## Жизненный цикл сегмента
 
 - Прокси держат сильную ссылку на `Segment`: буфер не освобождается, пока жив хотя бы один прокси.

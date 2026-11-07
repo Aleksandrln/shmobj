@@ -4,7 +4,7 @@ from __future__ import annotations
 from collections.abc import Mapping, Sequence
 from typing import Any
 
-from . import _shm
+from . import _shm, channel
 from ._core import (
     FORMAT_VERSION,
     FormatError,
@@ -13,6 +13,7 @@ from ._core import (
     Segment,
     SegmentClosedError,
     dumps,
+    dumps_into,
     validate,
 )
 from ._core import open_segment as _open_segment
@@ -28,8 +29,10 @@ __all__ = [
     "Segment",
     "SegmentClosedError",
     "attach",
+    "channel",
     "create",
     "dumps",
+    "dumps_into",
     "loads",
     "validate",
 ]
@@ -42,7 +45,7 @@ def loads(buf: Any, *, verify: bool = False) -> Any:
 
 def create(obj: Any, name: str | None = None, *, dedup: bool = True, checksum: bool = True) -> Segment:
     """Собрать `obj` в новую SharedMemory. Создатель отвечает за `unlink()`."""
-    return _shm.create(dumps(obj, dedup=dedup, checksum=checksum), name)
+    return _shm.create(obj, name, dedup=dedup, checksum=checksum)
 
 
 def attach(name: str, *, verify: bool = False) -> Segment:
