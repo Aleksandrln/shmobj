@@ -13,7 +13,7 @@ from typing import Any, Final
 from . import Value
 
 SUPPORTED: Final[bool]
-"""Linux с memfd_create, печатями и SCM_RIGHTS или Windows. Иначе (macOS) конструкторы,
+"""Linux (CPython с os.memfd_create) или Windows. Иначе (macOS) конструкторы,
 `socketpair()` и `spawn_kwargs()` — `NotImplementedError`."""
 
 def socketpair() -> tuple[socket.socket, socket.socket]:

@@ -137,7 +137,7 @@ sub.latest["vms"].get_many([101, 102], None)         # корень послед
 
 | Член | Описание |
 |---|---|
-| `SUPPORTED: bool` | Linux с `memfd_create`, печатями и SCM_RIGHTS или Windows. Иначе (macOS) конструкторы, `socketpair()` и `spawn_kwargs()` дают `NotImplementedError` |
+| `SUPPORTED: bool` | Linux (`sys.platform`; CPython с `os.memfd_create`) или Windows. Иначе (macOS) конструкторы, `socketpair()` и `spawn_kwargs()` дают `NotImplementedError` |
 | `socketpair()` | Linux — AF_UNIX SOCK_SEQPACKET, Windows — loopback TCP; концы равноправны, не наследуются |
 | `spawn_kwargs(sock) -> dict` | Аргументы `Popen`/`create_subprocess_exec` для наследования `sock`: `pass_fds` (Linux), `startupinfo` с `handle_list` (Windows; `sock` становится наследуемым). В дочернем процессе — `socket.socket(fileno=…)` с номером из родителя |
 | `Publisher(sock, *, sndbuf=16384, name="shmobj")` | Владеет `sock`, переводит в неблокирующий режим. Linux: `SO_SNDBUF = sndbuf`, `name` — имя memfd (видно в `/proc/<pid>/maps`). Windows: `sndbuf` не используется, `name` — префикс имён снимков |

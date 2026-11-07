@@ -17,20 +17,20 @@ from __future__ import annotations
 import mmap
 import os
 import socket
+import sys
 from collections.abc import Callable
 from typing import Any
 
 from . import _shm
 from ._core import dumps_into, open_segment
 
-try:
+if sys.platform == "linux":
     import fcntl
-except ImportError:  # Windows
-    fcntl = None
 
-_MEMFD = (fcntl is not None and hasattr(os, "memfd_create") and hasattr(os, "MFD_ALLOW_SEALING")
-          and hasattr(socket, "send_fds") and hasattr(socket, "SOCK_SEQPACKET"))
-_NAMED = os.name == "nt"
+# fcntl, send_fds и SOCK_SEQPACKET на Linux с Python ≥ 3.11 есть всегда; memfd_create нет у CPython,
+# собранного с glibc < 2.27
+_MEMFD = sys.platform == "linux" and hasattr(os, "memfd_create")
+_NAMED = sys.platform == "win32"
 SUPPORTED = _MEMFD or _NAMED
 
 # linux/fcntl.h: в модуле fcntl констант печатей может не быть
@@ -50,7 +50,7 @@ _EOL = b"\n"
 
 def _require() -> None:
     if not SUPPORTED:
-        raise NotImplementedError("shmobj.channel: нужны memfd_create и SCM_RIGHTS (Linux) или Windows")
+        raise NotImplementedError("shmobj.channel: нужен Linux с os.memfd_create или Windows")
 
 
 def socketpair() -> tuple[socket.socket, socket.socket]:
