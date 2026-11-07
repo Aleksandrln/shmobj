@@ -21,3 +21,15 @@ def test_channel_example(script):
     lines = out.stdout.splitlines()
     assert lines[-1].startswith("последний: tick=") and int(lines[-1].rsplit("=", 1)[1]) >= 20
     assert lines[-2].startswith("tick=")
+
+
+@pytest.mark.skipif(not channel.SUPPORTED, reason="канал — Linux и Windows")
+def test_channel_fanout_example():
+    env = {**os.environ, "PYTHONIOENCODING": "utf-8"}
+    out = subprocess.run([sys.executable, str(EXAMPLES / "channel_fanout.py")], capture_output=True, encoding="utf-8",
+                         env=env, timeout=60)
+    assert out.returncode == 0, out.stderr
+    lines = out.stdout.splitlines()
+    readers = [line for line in lines if line.startswith("читатель ")]
+    assert len(readers) == 3 and all(int(line.rsplit("=", 1)[1]) >= 20 for line in readers)
+    assert lines[-1].startswith("писатель: последний tick=")

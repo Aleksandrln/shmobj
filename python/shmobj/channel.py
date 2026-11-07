@@ -1,4 +1,7 @@
-"""Канал снимков: последний снимок от писателя к читателю через общую память (Linux, Windows).
+"""Канал снимков: последний снимок от писателя к читателям через общую память (Linux, Windows).
+
+Писатель собирает снимок один раз и рассылает его всем подписчикам (сокетам `add`); каждый новый
+подписчик сразу получает последний.
 
 Linux: писатель собирает снимок прямо в memfd (`dumps_into`), запечатывает его от записи и изменения
 размера и передаёт дескриптор по сокету AF_UNIX SOCK_SEQPACKET (SCM_RIGHTS). Читатель берёт из
@@ -6,8 +9,8 @@ Linux: писатель собирает снимок прямо в memfd (`dump
 Снимок освобождается ядром, когда закрыт последний дескриптор и отпущен последний прокси.
 
 Windows: снимок — именованная SharedMemory (`create`), по сокету (loopback TCP) идёт её имя строкой.
-Читатель подключается к последнему (`attach`) и подтверждает имена; писатель держит снимок до
-подтверждения, иначе тот исчез бы раньше, чем его откроют. Объект ядра живёт, пока открыт хоть один
+Читатель подключается к последнему (`attach`) и подтверждает имена; писатель держит снимок, пока
+он последний или не подтверждён хоть одним подписчиком, иначе тот исчез бы раньше, чем его откроют. Объект ядра живёт, пока открыт хоть один
 handle, поэтому `unlink` не нужен. Печатей нет: неизменность снимка — на писателе.
 
 После падения любой из сторон в ОС ничего не остаётся. Семантика — doc/spec/02-api.md §6.
@@ -73,17 +76,49 @@ def spawn_kwargs(sock: socket.socket) -> dict[str, Any]:
     return {"startupinfo": subprocess.STARTUPINFO(lpAttributeList={"handle_list": [sock.fileno()]})}
 
 
+def listen(address: Any, backlog: int = 16) -> socket.socket:
+    """Слушающий сокет писателя: принятые соединения — в `Publisher.add`. Linux: `address` — путь
+    AF_UNIX SOCK_SEQPACKET (файл не должен существовать; `"\\0имя"` — абстрактный, без файла).
+    Windows: `(host, port)` TCP, порт 0 — свободный, узнать — `getsockname()`."""
+    _require()
+    sock = socket.socket(socket.AF_UNIX, socket.SOCK_SEQPACKET) if _MEMFD else socket.socket()
+    try:
+        sock.bind(address)
+        sock.listen(backlog)
+    except BaseException:
+        sock.close()
+        raise
+    return sock
+
+
+def connect(address: Any) -> socket.socket:
+    """Сокет читателя, подключённый к `listen(address)` писателя: в `Subscriber`."""
+    _require()
+    sock = socket.socket(socket.AF_UNIX, socket.SOCK_SEQPACKET) if _MEMFD else socket.socket()
+    try:
+        sock.connect(address)
+    except BaseException:
+        sock.close()
+        raise
+    return sock
+
+
+def _own(sock: socket.socket, sock_type: str) -> socket.socket:
+    """Проверить тип сокета (`sock_type` — имя константы `socket`) и перевести его в неблокирующий режим."""
+    if sock.type != getattr(socket, sock_type, None):
+        raise ValueError(f"shmobj.channel: нужен сокет {sock_type}")
+    sock.setblocking(False)
+    return sock
+
+
 class _End:
-    """Конец канала: владеет сокетом в неблокирующем режиме."""
+    """Конец читателя: владеет сокетом в неблокирующем режиме."""
 
     _SOCK_TYPE: str  # имя константы `socket`
 
     def __init__(self, sock: socket.socket) -> None:
         _require()
-        if sock.type != getattr(socket, self._SOCK_TYPE, None):
-            raise ValueError(f"shmobj.channel: нужен сокет {self._SOCK_TYPE}")
-        sock.setblocking(False)
-        self._sock = sock
+        self._sock = _own(sock, self._SOCK_TYPE)
 
     def fileno(self) -> int:
         return self._sock.fileno()
@@ -168,6 +203,88 @@ class _Subscriber(_End):
             self._reader = loop, fd, loop.create_task(self._wait_readable(loop, callback))
 
 
+class _Publisher:
+    """Общее у писателей: подписчики, последний снимок (его получает каждый новый), рассылка, закрытие.
+
+    Платформа даёт `_subscribe(sock)` → подписчик, `_build(obj, dedup, checksum)` → снимок,
+    `_send(sub, snap)` → True / False (очередь полна) / None (подписчик закрыл канал),
+    `_retire(snap)` (снимок больше не последний), `_drop(sub)`, `_collect()` → кто закрыл канал.
+    """
+
+    _SOCK_TYPE: str  # имя константы `socket`
+
+    def __init__(self, sock: socket.socket | None = None, *, sndbuf: int = 16 * 1024, name: str = "shmobj") -> None:
+        _require()
+        self._sndbuf = sndbuf
+        self._name = name
+        self._subs: list[Any] = []
+        self._latest: Any = None
+        self._closed = False
+        if sock is not None:
+            self.add(sock)
+
+    @property
+    def subscribers(self) -> int:
+        return len(self._subs)
+
+    @property
+    def closed(self) -> bool:
+        return self._closed
+
+    def add(self, sock: socket.socket) -> None:
+        """Подписать сокет; последний опубликованный снимок уходит ему сразу."""
+        if self._closed:
+            raise ValueError("shmobj.channel: писатель закрыт")
+        sub = self._subscribe(_own(sock, self._SOCK_TYPE))
+        self._subs.append(sub)
+        if self._latest is not None and self._send(sub, self._latest) is None:
+            self._remove(sub)
+
+    def _remove(self, sub: Any) -> None:
+        self._subs.remove(sub)
+        self._drop(sub)
+
+    def publish(self, obj: Any, *, dedup: bool = True, checksum: bool = True) -> bool:
+        """Собрать снимок `obj` один раз и отправить всем подписчикам. False — хотя бы у одного очередь
+        полна, ему снимок пропущен. Последний подписчик закрыл канал — `BrokenPipeError`."""
+        if self._closed:
+            raise ValueError("shmobj.channel: писатель закрыт")
+        gone = self._collect()
+        for sub in gone:
+            self._remove(sub)
+        snap = self._build(obj, dedup, checksum)
+        prev, self._latest = self._latest, snap
+        if prev is not None:
+            self._retire(prev)
+        delivered = True
+        for sub in list(self._subs):
+            sent = self._send(sub, snap)
+            if sent is None:
+                self._remove(sub)
+                gone.append(sub)
+            elif not sent:
+                delivered = False
+        if gone and not self._subs:
+            raise BrokenPipeError("shmobj.channel: подписчики закрыли канал")
+        return delivered
+
+    def close(self) -> None:
+        """Закрыть сокеты подписчиков и отпустить снимки писателя; идемпотентен."""
+        self._closed = True
+        subs, self._subs = self._subs, []
+        for sub in subs:
+            self._drop(sub)
+        latest, self._latest = self._latest, None
+        if latest is not None:
+            self._retire(latest)
+
+    def __enter__(self):
+        return self
+
+    def __exit__(self, *exc: object) -> None:
+        self.close()
+
+
 def _sealed_memfd(name: str, obj: Any, dedup: bool, checksum: bool) -> int:
     fd = os.memfd_create(name, os.MFD_ALLOW_SEALING | os.MFD_CLOEXEC)
     out = None
@@ -191,25 +308,37 @@ def _sealed_memfd(name: str, obj: Any, dedup: bool, checksum: bool) -> int:
     return fd
 
 
-class _MemfdPublisher(_End):
+class _MemfdPublisher(_Publisher):
+    """Подписчик — сокет, снимок — дескриптор запечатанного memfd: один на всех, пока он последний."""
+
     _SOCK_TYPE = "SOCK_SEQPACKET"
 
-    def __init__(self, sock: socket.socket, *, sndbuf: int = 16 * 1024, name: str = "shmobj") -> None:
-        super().__init__(sock)
+    def _subscribe(self, sock: socket.socket) -> socket.socket:
         # буфер отправки ограничивает очередь непрочитанных снимков, каждый из которых держит свой memfd
-        sock.setsockopt(socket.SOL_SOCKET, socket.SO_SNDBUF, sndbuf)
-        self._name = name
+        sock.setsockopt(socket.SOL_SOCKET, socket.SO_SNDBUF, self._sndbuf)
+        return sock
 
-    def publish(self, obj: Any, *, dedup: bool = True, checksum: bool = True) -> bool:
-        """Отправить снимок `obj`. False — очередь полна (читатель не разбирает её), снимок пропущен."""
-        fd = _sealed_memfd(self._name, obj, dedup, checksum)
+    def _collect(self) -> list[Any]:
+        return []  # закрытие подписчика видно по EPIPE при отправке
+
+    def _build(self, obj: Any, dedup: bool, checksum: bool) -> int:
+        return _sealed_memfd(self._name, obj, dedup, checksum)
+
+    def _send(self, sock: socket.socket, fd: int) -> bool | None:
         try:
-            socket.send_fds(self._sock, [_MSG], [fd])
+            # MSG_NOSIGNAL: ушедший подписчик — EPIPE без SIGPIPE, даже если процесс не игнорирует сигнал
+            socket.send_fds(sock, [_MSG], [fd], socket.MSG_NOSIGNAL)  # пока сообщение в очереди, memfd держит ядро
         except BlockingIOError:
             return False
-        finally:
-            os.close(fd)  # пока сообщение в очереди, memfd держит ядро
+        except OSError:
+            return None
         return True
+
+    def _retire(self, fd: int) -> None:
+        os.close(fd)
+
+    def _drop(self, sock: socket.socket) -> None:
+        sock.close()
 
 
 def _load_memfd(fd: int, verify: bool) -> Any:
@@ -282,49 +411,69 @@ def _read_lines(sock: socket.socket, tail: bytes) -> tuple[list[bytes], bytes, b
     return lines, tail, eof
 
 
-class _NamedPublisher(_End):
+class _NamedSub:
+    """Подписчик именованного писателя: сокет, неполная строка подтверждения, отправленные без подтверждения имена."""
+
+    __slots__ = ("sock", "acks", "pending")
+
+    def __init__(self, sock: socket.socket) -> None:
+        self.sock = sock
+        self.acks = b""
+        self.pending: set[bytes] = set()
+
+
+class _NamedPublisher(_Publisher):
+    """Снимок — имя SharedMemory; писатель держит её, пока она последняя или кем-то не подтверждена."""
+
     _SOCK_TYPE = "SOCK_STREAM"
 
-    def __init__(self, sock: socket.socket, *, sndbuf: int = 16 * 1024, name: str = "shmobj") -> None:
-        super().__init__(sock)
-        self._name = name
+    def __init__(self, sock: socket.socket | None = None, *, sndbuf: int = 16 * 1024, name: str = "shmobj") -> None:
         self._seq = 0
-        self._pending: dict[bytes, Any] = {}  # имя → Segment: отправлен, не подтверждён
-        self._acks = b""  # неполная строка подтверждения
+        self._segments: dict[bytes, Any] = {}  # имя → Segment
+        super().__init__(sock, sndbuf=sndbuf, name=name)
 
-    def _collect_acks(self) -> None:
-        lines, self._acks, eof = _read_lines(self._sock, self._acks)
-        for line in lines:  # чужие имена (прежний писатель того же сокета) пропускаются
-            seg = self._pending.pop(line, None)
-            if seg is not None:
-                _release(seg)
-        if eof:
-            raise BrokenPipeError("shmobj.channel: читатель закрыл канал")
+    def _subscribe(self, sock: socket.socket) -> _NamedSub:
+        return _NamedSub(sock)
 
-    def publish(self, obj: Any, *, dedup: bool = True, checksum: bool = True) -> bool:
-        """Отправить снимок `obj`. False — очередь полна (читатель не разбирает её), снимок пропущен."""
-        self._collect_acks()
-        if len(self._pending) >= _MAX_PENDING:
-            return False
+    def _collect(self) -> list[Any]:
+        gone = []
+        for sub in self._subs:  # чужие имена (прежний писатель того же сокета) пропускаются
+            lines, sub.acks, eof = _read_lines(sub.sock, sub.acks)
+            sub.pending.difference_update(lines)
+            if eof:
+                gone.append(sub)
+        self._release_unused()
+        return gone
+
+    def _build(self, obj: Any, dedup: bool, checksum: bool) -> bytes:
         name = f"{self._name}-{os.getpid()}-{self._seq}"
         self._seq += 1
-        seg = _shm.create(obj, name, dedup=dedup, checksum=checksum)
+        self._segments[name.encode()] = _shm.create(obj, name, dedup=dedup, checksum=checksum)
+        return name.encode()
+
+    def _send(self, sub: _NamedSub, name: bytes) -> bool | None:
+        if len(sub.pending) >= _MAX_PENDING:
+            return False
         try:
-            self._sock.sendall(name.encode() + _EOL)  # строки короткие, а в очереди их не больше _MAX_PENDING
-        except BaseException as exc:
-            _release(seg)
-            if isinstance(exc, ConnectionError):
-                raise BrokenPipeError("shmobj.channel: читатель закрыл канал") from exc
-            raise
-        self._pending[name.encode()] = seg
+            sub.sock.sendall(name + _EOL)  # строки короткие, а в очереди их не больше _MAX_PENDING
+        except OSError:
+            return None
+        sub.pending.add(name)
         return True
 
-    def close(self) -> None:
-        """Закрыть сокет и неподтверждённые снимки: их читатель уже не откроет."""
-        pending, self._pending = self._pending, {}
-        for seg in pending.values():
-            _release(seg)
-        self._sock.close()
+    def _retire(self, name: bytes) -> None:
+        self._release_unused()
+
+    def _drop(self, sub: _NamedSub) -> None:
+        sub.sock.close()
+        self._release_unused()
+
+    def _release_unused(self) -> None:
+        """Закрыть снимки, которые не последние и которых не ждёт ни один подписчик."""
+        held = set().union(*(sub.pending for sub in self._subs))
+        held.add(self._latest)
+        for name in [n for n in self._segments if n not in held]:
+            _release(self._segments.pop(name))
 
 
 class _NamedSubscriber(_Subscriber):
@@ -367,7 +516,8 @@ class _NamedSubscriber(_Subscriber):
 
 
 class Publisher(_NamedPublisher if _NAMED else _MemfdPublisher):
-    """Конец писателя. Владеет сокетом: переводит его в неблокирующий режим и закрывает в `close()`."""
+    """Писатель: один снимок на всех подписчиков. Владеет их сокетами: переводит в неблокирующий
+    режим и закрывает, когда подписчик ушёл, и в `close()`."""
 
 
 class Subscriber(_NamedSubscriber if _NAMED else _MemfdSubscriber):
