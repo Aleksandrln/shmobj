@@ -108,7 +108,8 @@ if __name__ == "__main__":
 
 ### Канал снимков (Linux, Windows)
 
-Писатель периодически отдаёт снимок целиком, читатель держит последний. На Linux снимок —
+Писатель периодически отдаёт снимок целиком, читатель держит последний. Читателей может быть
+несколько: снимок собирается один раз, все читают одни и те же страницы. На Linux снимок —
 запечатанный memfd, дескриптор идёт по сокету; на Windows — именованная SharedMemory, по сокету идёт
 имя, читатель подтверждает приём. После падения любой из сторон в ОС ничего не остаётся.
 
@@ -121,28 +122,51 @@ pub_end, sub_end = channel.socketpair()
 child = subprocess.Popen([sys.executable, "writer.py", str(pub_end.fileno())], **channel.spawn_kwargs(pub_end))
 pub_end.close()
 sub = channel.Subscriber(sub_end)
-sub.attach(lambda root: print(root["n"]))   # в работающем цикле asyncio; без него — sub.receive()
+sub.attach(lambda root: print(root["n"]))   # в работающем цикле asyncio; без него — sub.wait()
 
 # писатель (writer.py)
 pub = channel.Publisher(socket.socket(fileno=int(sys.argv[1])))
 pub.publish({"n": 1})                       # False — читатель отстал, снимок пропущен
 ```
 
+- `pub.publish()` — `False`, если у кого-то из подписчиков очередь полна: ему снимок пропущен,
+  остальные получают. `BrokenPipeError` — канал закрыл последний подписчик.
 - `sub.latest` — корень последнего снимка (`FrozenDict`, …), `None` до первого; прежние
   освобождаются, когда отпущены их прокси.
-- Выход писателя закрывает канал у читателя (`sub.closed`), `latest` остаётся. Новый писатель — новая пара.
+- Выход писателя закрывает канал у читателя (`sub.closed`), `latest` остаётся. Новый писатель — новое подключение.
 - `spawn_kwargs(sock)` — аргументы `Popen` для наследования сокета: `pass_fds` на Linux,
   `startupinfo` с `handle_list` на Windows.
 - Windows: очередь — 4 неподтверждённых снимка; снимок, который писатель не успел отдать до
   `close()` или выхода, теряется. Печатей нет — снимок не меняет только сам писатель.
 - На macOS `channel.SUPPORTED` ложно, конструкторы дают `NotImplementedError`.
 
+Несколько читателей — воркеры Gunicorn/Uvicorn. Писатель — отдельный процесс (воркеры
+перезапускаются, а писатель должен жить дольше них): слушает сокет и подписывает каждого
+подключившегося, новый сразу получает последний снимок. Воркер подключается при старте:
+
+```python
+# писатель
+pub = channel.Publisher()
+address = pub.accept_in_thread(channel.listen("/run/app/snapshots.sock"))  # Windows: ("127.0.0.1", порт)
+# в asyncio, без потока: pub.accept_in_loop(channel.listen(...)); возвращает адрес для connect
+pub.publish(data)                                      # одна сборка на всех
+
+# воркер: lifespan startup (Uvicorn) или post_worker_init (Gunicorn)
+sub = channel.Subscriber(channel.connect("/run/app/snapshots.sock"))
+sub.attach()                                           # в цикле asyncio; в запросе — sub.latest
+```
+
+Файл сокета не должен существовать к `listen` — после падения писателя его удаляют; на Linux
+абстрактный адрес `"\0имя"` файла не создаёт. Прокси снимка нельзя держать в глобальных кешах:
+такая ссылка не даёт освободить старые снимки.
+
 Готовые примеры в `examples/` (запуск: `python examples/channel_sync.py`):
 
 | Файл | Режим |
 |---|---|
-| `channel_sync.py` | Без asyncio: ожидание сокета в `selectors` (подходит `select`, `poll` — у концов есть `fileno()`), затем `receive()` |
+| `channel_sync.py` | Без asyncio: блокирующий `wait()`; несколько сокетов — свой `selectors` по `fileno()`, затем `receive()` |
 | `channel_async.py` | asyncio: `asyncio.create_subprocess_exec(..., **spawn_kwargs(...))`, `attach(callback)`, ожидание `asyncio.Event` |
+| `channel_fanout.py` | Один писатель и три читателя-процесса: `listen` → `Publisher.accept_in_thread`, читатели — `connect` |
 | `writer.py` | Писатель для обоих: `publish` в цикле с `time.sleep` или из корутины (`--async`); выход по `BrokenPipeError`, когда читатель закрыл канал |
 
 ### Отладчик

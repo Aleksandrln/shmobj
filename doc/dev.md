@@ -40,7 +40,7 @@ pytest                            # tests/: golden, сверка с эталон
 | `crates/shmobj-py` | cdylib `shmobj._core` (PyO3): `Segment`, прокси, итераторы, сборка из Python-объектов; весь `unsafe` здесь |
 | `python/shmobj` | Пакет: реэкспорт `_core`, регистрация в ABC, `create`/`attach` поверх `SharedMemory` (`_shm.py`), канал снимков (`channel.py`), `.pyi` |
 | `tests/` | pytest; `conftest.py` добавляет `reference/` и `golden/` в `sys.path` |
-| `examples/` | Запускаемые примеры канала (синхронный и asyncio-читатель); их прогоняет `tests/test_examples.py` |
+| `examples/` | Запускаемые примеры канала (синхронный и asyncio-читатель, несколько читателей); их прогоняет `tests/test_examples.py` |
 | `reference/`, `golden/` | Эталон и эталонные сегменты из ТЗ |
 | `doc/spec/` | ТЗ (ссылки внутри поправлены под эту раскладку) |
 
