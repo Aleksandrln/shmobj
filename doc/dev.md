@@ -13,6 +13,9 @@ maturin develop --release        # собрать shmobj._core и постави
 `maturin develop` без `--release` собирает debug-версию: она в ~10 раз медленнее,
 для замеров скорости не подходит.
 
+Версия пакета — `version` в `crates/shmobj-py/Cargo.toml` (`pyproject.toml` берёт её оттуда, `dynamic`),
+у `crates/shmobj-core` — та же. До первого выпуска — `0.1.0`.
+
 ## Проверки (то же, что в CI)
 
 ```bash
