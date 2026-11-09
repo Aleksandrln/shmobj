@@ -1,4 +1,4 @@
-"""Примеры из `examples/` запускаются и работают так, как описано в README."""
+"""Скрипты из `examples/` запускаются и работают так, как описано в examples/README.md."""
 import os
 import queue
 import signal

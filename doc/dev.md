@@ -83,7 +83,7 @@ pytest                            # tests/: golden, сверка с эталон
 | `crates/shmobj-py` | cdylib `shmobj._core` (PyO3): `Segment`, прокси, итераторы, сборка из Python-объектов; весь `unsafe` здесь |
 | `python/shmobj` | Пакет: реэкспорт `_core`, регистрация в ABC, `create`/`attach` поверх `SharedMemory` (`_shm.py`), канал снимков (`channel.py`), последний снимок по имени (`latest.py`), `.pyi` |
 | `tests/` | pytest; `conftest.py` добавляет `reference/` и `golden/` в `sys.path` |
-| `examples/` | Рабочие примеры из README ([examples/README.md](../examples/README.md)); их прогоняет `tests/test_examples.py` |
+| `examples/` | Рабочие скрипты с обвязкой ([examples/README.md](../examples/README.md)) — та же механика, что в примерах README; их прогоняет `tests/test_examples.py` |
 | `reference/`, `golden/` | Эталон формата на Python (`pytest reference/`) и эталонные сегменты с входными данными (`cases.py`) |
 | `doc/` | Руководство, справочник API, формат, архитектура, сборка, разработка, состояние |
 

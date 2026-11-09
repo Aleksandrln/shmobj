@@ -6,9 +6,8 @@
 ## Общий набор данных
 
 `create(obj)` собирает дерево в новый сегмент общей памяти, `attach(name)` открывает его в другом процессе за
-O(1): читается только заголовок. Имя `segment.name` передаётся читателям любым способом — аргументом задачи пула
-([examples/shared_pool.py](../examples/shared_pool.py)), переменной окружения, через `initializer` пула
-([examples/file_mmap.py](../examples/file_mmap.py)).
+O(1): читается только заголовок. Имя `segment.name` передаётся читателям любым способом — аргументом задачи пула, через
+`initializer` пула ([examples/shared_pool.py](../examples/shared_pool.py)), переменной окружения.
 
 ```python
 import shmobj
