@@ -11,8 +11,8 @@ import shmobj
 seg = shmobj.create(data)                 # новая SharedMemory, имя генерируется
 seg.name                                  # передать в другие процессы
 
-# другой процесс, name — seg.name из создателя
-with shmobj.attach(name) as seg:
+# другой процесс
+with shmobj.attach(seg.name) as seg:
     users = seg.root["users"]             # FrozenList
     names = users[0].get_many(["id", "name"])
     total = sum(u["score"] for u in users.iter_values())
