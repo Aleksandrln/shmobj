@@ -156,7 +156,7 @@ def test_asyncio_attach(mode):
             if sub.closed:
                 break
             await asyncio.sleep(0.01)
-        assert sub.closed and sub._reader is None
+        assert sub.closed and sub._receiver is None
         assert sub.latest["i"] == 2
 
     asyncio.run(main())
@@ -173,7 +173,7 @@ def test_close_after_socket_closed_outside(mode):
             sub.attach()
             sub_sock.close()  # чужой код закрыл сокет, не сняв его с цикла
             sub.close()
-            assert sub.closed and sub._reader is None
+            assert sub.closed and sub._receiver is None
 
     asyncio.run(main())
 
@@ -676,14 +676,18 @@ def test_wait_async_receive_error(memfd_ends):
         with pytest.raises(ValueError, match="не запечатан"):
             await sub.wait_async(5)
         assert not await sub.wait_async(0)
+        _send_unsealed(pub, [4])
+        await asyncio.sleep(0.05)
+        sub.detach()  # не забранная до снятия приёма — обработчику цикла
+        assert [type(e) for e in handled] == [ValueError]
 
         sub.attach(lambda root: 1 / 0)  # приём включил attach
-        _send_unsealed(pub, [4])
+        _send_unsealed(pub, [5])
         await asyncio.sleep(0.05)  # отдельно: из очереди receive берёт только последний
-        pub.publish([5])
+        pub.publish([6])
         await asyncio.sleep(0.05)
-        assert [type(e) for e in handled] == [ValueError, ZeroDivisionError]  # ждущих нет — обработчику цикла
-        assert list(sub.latest) == [5]
+        assert [type(e) for e in handled] == [ValueError] * 2 + [ZeroDivisionError]  # ждущих нет — обработчику цикла
+        assert list(sub.latest) == [6]
 
     asyncio.run(main())
 
