@@ -63,7 +63,8 @@ jobs:
       - uses: actions/upload-artifact@v4
         with: { name: sdist, path: dist }
 
-  # Тег v<версия> — GitHub Release с колёсами и sdist; версия тега должна совпадать с crates/shmobj-py/Cargo.toml.
+  # Тег v<версия> — колёса и sdist в GitHub Release; версия тега должна совпадать с crates/shmobj-py/Cargo.toml.
+  # Релиз, созданный в интерфейсе вместе с тегом, получает файлы; без него релиз создаётся.
   release:
     if: startsWith(github.ref, 'refs/tags/v')
     needs: [wheels, sdist]
@@ -77,5 +78,11 @@ jobs:
           test "${GITHUB_REF_NAME#v}" = "$version" || { echo "тег $GITHUB_REF_NAME, версия пакета $version"; exit 1; }
       - uses: actions/download-artifact@v4
         with: { path: dist, merge-multiple: true }
-      - run: gh release create "$GITHUB_REF_NAME" dist/* --verify-tag --generate-notes
+      - name: Релиз
+        run: |
+          if gh release view "$GITHUB_REF_NAME" > /dev/null 2>&1; then
+            gh release upload "$GITHUB_REF_NAME" dist/* --clobber
+          else
+            gh release create "$GITHUB_REF_NAME" dist/* --verify-tag --generate-notes
+          fi
         env: { GH_TOKEN: "${{ github.token }}" }
