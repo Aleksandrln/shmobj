@@ -32,10 +32,14 @@ def listen(address: Any, backlog: int = 16) -> socket.socket:
     AF_UNIX SOCK_SEQPACKET (файл не должен существовать; `"\\0имя"` — абстрактный, без файла).
     Windows: `(host, port)` TCP, порт 0 — свободный, узнать — `getsockname()`."""
 
-def connect(address: Any, *, retry: float | None = None) -> socket.socket:
+def connect(address: Any, *, wait_writer: bool | float = False) -> socket.socket:
     """Сокет читателя, подключённый к `listen(address)` писателя: в `Subscriber`.
-    `retry` — пока писатель не слушает адрес (`ConnectionRefusedError`, `FileNotFoundError`), повторять
-    каждые `retry` секунд вместо исключения; блокирует поток."""
+    Адрес никто не слушает (`ConnectionRefusedError`, `FileNotFoundError`): `wait_writer=False` — исключение
+    сразу, `True` — ждать писателя без срока, число — не дольше стольких секунд, затем то же исключение.
+    Ждёт, блокируя поток; в asyncio — `connect_async`."""
+
+async def connect_async(address: Any, *, wait_writer: bool | float = False) -> socket.socket:
+    """`connect` в текущем цикле asyncio: ожидание писателя не блокирует цикл и отменяется вместе с задачей."""
 
 class Publisher:
     """Писатель: один снимок на всех подписчиков. Владеет их сокетами: переводит в неблокирующий

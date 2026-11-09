@@ -209,8 +209,9 @@ from shmobj import channel
 ADDRESS = ("127.0.0.1", 50555) if sys.platform == "win32" else "\0snapshots"
 
 while True:
-    # retry: писатель ещё не запущен или перезапускается — повторять каждую секунду.
-    with channel.Subscriber(channel.connect(ADDRESS, retry=1)) as sub:
+    # Писатель ещё не запущен или перезапускается — ждать его. Ошибка в адресе здесь тоже выглядит как ожидание:
+    # wait_writer=30 — не дольше 30 секунд, затем ConnectionRefusedError.
+    with channel.Subscriber(channel.connect(ADDRESS, wait_writer=True)) as sub:
         # wait() спит, пока не придёт снимок: True — sub.latest сменился, False — писатель закрылся или упал.
         while sub.wait():
             root = sub.latest  # FrozenDict поверх общей памяти, без копирования
@@ -224,7 +225,8 @@ while True:
 
 - писатель запускает читателя сам — пара сокетов `socketpair()`, второй конец ребёнок наследует через
   `spawn_kwargs()`, адрес не нужен: [examples/channel_sync.py](examples/channel_sync.py);
-- asyncio — `accept_in_loop` у писателя, колбэк `attach` у читателя: [examples/channel_async.py](examples/channel_async.py);
+- asyncio — `accept_in_loop` у писателя; у читателя `await channel.connect_async(ADDRESS, wait_writer=True)` (ожидание
+  не блокирует цикл) и колбэк `attach`: [examples/channel_async.py](examples/channel_async.py);
 - несколько каналов в одном потоке — `Subscriber.fileno()` в своём `selectors`, приём — `receive()` без ожидания;
 - Linux, путь к файлу вместо абстрактного имени — файл остаётся и после выхода писателя, перед `listen` его удаляют.
 

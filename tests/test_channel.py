@@ -327,21 +327,64 @@ def test_listen_connect(tmp_path):
             assert sub.latest["n"] == 1
 
 
-@needs_channel
-def test_connect_retry(tmp_path):
-    address = str(tmp_path / "snap.sock") if channel._MEMFD else ("127.0.0.1", 50557)
-    with pytest.raises((ConnectionRefusedError, FileNotFoundError)):
-        channel.connect(address)
-    listeners = []
+def _free_address(tmp_path):
+    """Адрес, который никто не слушает; Windows — порт, только что свободный."""
+    if channel._MEMFD:
+        return str(tmp_path / "snap.sock")
+    with socket.socket() as probe:
+        probe.bind(("127.0.0.1", 0))
+        return probe.getsockname()
+
+
+def _listen_later(address, listeners):
     timer = threading.Timer(0.3, lambda: listeners.append(channel.listen(address)))
     timer.start()
+    return timer
+
+
+@needs_channel
+def test_connect_wait_writer(tmp_path):
+    address = _free_address(tmp_path)
+    with pytest.raises(channel._NO_WRITER):
+        channel.connect(address)
+    start = time.monotonic()
+    with pytest.raises(channel._NO_WRITER):
+        channel.connect(address, wait_writer=0.3)
+    assert time.monotonic() - start >= 0.3
+    listeners = []
+    timer = _listen_later(address, listeners)
     try:
-        with channel.connect(address, retry=0.05):  # писателя ещё нет — ждёт, пока он не начнёт слушать
+        with channel.connect(address, wait_writer=True):  # писателя ещё нет — ждёт, пока он не начнёт слушать
             assert listeners
     finally:
         timer.join()
         for listener in listeners:
             listener.close()
+
+
+@needs_channel
+def test_connect_async_wait_writer(tmp_path):
+    address = _free_address(tmp_path)
+
+    async def main():
+        waiting = asyncio.create_task(channel.connect_async(address, wait_writer=True))
+        await asyncio.sleep(0.3)
+        waiting.cancel()  # ожидание писателя отменяется вместе с задачей
+        with pytest.raises(asyncio.CancelledError):
+            await waiting
+        with pytest.raises(channel._NO_WRITER):
+            await channel.connect_async(address, wait_writer=0.1)
+        listeners = []
+        timer = _listen_later(address, listeners)
+        try:
+            with await channel.connect_async(address, wait_writer=True):
+                assert listeners
+        finally:
+            timer.join()
+            for listener in listeners:
+                listener.close()
+
+    asyncio.run(main())
 
 
 def _listen(mode, tmp_path):

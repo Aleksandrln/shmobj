@@ -52,6 +52,9 @@ _MAX_FDS = 4
 # Windows: очередь — снимки без подтверждения; каждый держит свою SharedMemory у писателя
 _MAX_PENDING = 4
 _EOL = b"\n"
+# адрес никто не слушает: нет слушающего сокета или файла сокета
+_NO_WRITER = (ConnectionRefusedError, FileNotFoundError)
+_WAIT_WRITER_POLL = 0.2  # секунд между попытками подключения в ожидании писателя
 
 
 def _require() -> None:
@@ -95,23 +98,69 @@ def listen(address: Any, backlog: int = 16) -> socket.socket:
     return sock
 
 
-def connect(address: Any, *, retry: float | None = None) -> socket.socket:
+def _client_socket() -> socket.socket:
+    return socket.socket(socket.AF_UNIX, socket.SOCK_SEQPACKET) if _MEMFD else socket.socket()
+
+
+def _writer_deadline(wait_writer: bool | float) -> float | None:
+    """Срок ожидания писателя по `time.monotonic()`; None — без срока."""
+    if wait_writer is True:
+        return None
+    return time.monotonic() + (wait_writer or 0)
+
+
+def _next_try(deadline: float | None) -> float | None:
+    """Пауза перед следующей попыткой подключения; None — срок вышел."""
+    if deadline is None:
+        return _WAIT_WRITER_POLL
+    left = deadline - time.monotonic()
+    return min(_WAIT_WRITER_POLL, left) if left > 0 else None
+
+
+def connect(address: Any, *, wait_writer: bool | float = False) -> socket.socket:
     """Сокет читателя, подключённый к `listen(address)` писателя: в `Subscriber`.
-    `retry` — пока писатель не слушает адрес, повторять каждые `retry` секунд вместо исключения."""
+    Адрес никто не слушает: `wait_writer=False` — исключение сразу, `True` — ждать писателя без срока,
+    число — не дольше стольких секунд. Ждёт, блокируя поток; в asyncio — `connect_async`."""
     _require()
+    deadline = _writer_deadline(wait_writer)
     while True:
-        sock = socket.socket(socket.AF_UNIX, socket.SOCK_SEQPACKET) if _MEMFD else socket.socket()
+        sock = _client_socket()
         try:
             sock.connect(address)
             return sock
-        except (ConnectionRefusedError, FileNotFoundError):  # нет слушающего сокета или файла сокета
+        except _NO_WRITER:
             sock.close()
-            if retry is None:
+            pause = _next_try(deadline)
+            if pause is None:
                 raise
         except BaseException:
             sock.close()
             raise
-        time.sleep(retry)
+        time.sleep(pause)
+
+
+async def connect_async(address: Any, *, wait_writer: bool | float = False) -> socket.socket:
+    """`connect` в текущем цикле asyncio: ожидание писателя не блокирует цикл и отменяется вместе с задачей."""
+    import asyncio
+
+    _require()
+    loop = asyncio.get_running_loop()
+    deadline = _writer_deadline(wait_writer)
+    while True:
+        sock = _client_socket()
+        sock.setblocking(False)
+        try:
+            await loop.sock_connect(sock, address)
+            return sock
+        except _NO_WRITER:
+            sock.close()
+            pause = _next_try(deadline)
+            if pause is None:
+                raise
+        except BaseException:
+            sock.close()
+            raise
+        await asyncio.sleep(pause)
 
 
 def _own(sock: socket.socket, sock_type: str) -> socket.socket:

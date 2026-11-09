@@ -136,7 +136,8 @@ pub.publish({"n": 1})                       # False — читатель отс�
 - `sub.latest` — корень последнего снимка (`FrozenDict`, …), `None` до первого; прежние
   освобождаются, когда отпущены их прокси.
 - Выход писателя закрывает канал у читателя (`sub.closed`), `latest` остаётся. Новый писатель — новое подключение;
-  `connect(address, retry=1)` ждёт, пока писатель не начнёт слушать адрес.
+  `connect(address, wait_writer=True)` ждёт, пока писатель не начнёт слушать адрес (число — срок в секундах),
+  в asyncio — `await connect_async(address, wait_writer=True)`.
 - `spawn_kwargs(sock)` — аргументы `Popen` для наследования сокета: `pass_fds` на Linux,
   `startupinfo` с `handle_list` на Windows.
 - Windows: очередь — 4 неподтверждённых снимка; снимок, который писатель не успел отдать до
