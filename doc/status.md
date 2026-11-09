@@ -14,7 +14,7 @@
 | Отладчик | Плагин pydevd в колесе |
 | CI | fmt, clippy, `cargo test`, pytest на Linux/Windows/macOS × 3.11/3.14; колёса, sdist и GitHub Release по тегу |
 
-Локально проверялся только Linux (Python 3.11–3.13); Windows и macOS — в CI.
+Проверено на Linux (Python 3.11–3.13) и Windows. macOS — только в CI, `shmobj.latest` там ещё не запускался.
 
 ## Нет
 
