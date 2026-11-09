@@ -56,39 +56,50 @@
 
 Подробные замеры: [doc/status.md](doc/status.md#базовые-замеры-release-linux-x86_64-python-313-эталонный-набор-spec07-testingmd-5).
 
-## Быстрый старт
+## Установка
 
-Процесс-владелец создаёт сегмент и передаёт его имя другим процессам любым удобным способом — например, через
-аргументы запуска или переменную окружения:
+- Ядро на Rust, Python bindings через PyO3.
+- **CPython 3.11 или новее**, ABI3: один wheel для разных версий CPython.
+- Версия 1 — только чтение: опубликованные данные нельзя изменить.
 
-```python
-import shmobj
+### Готовые wheels
 
-segment = shmobj.create({
-    "users": [
-        {"id": 1, "name": "Ann", "score": 42},
-        {"id": 2, "name": "Bob", "score": 37},
-    ]
-})
+CI собирает wheels для следующих платформ:
 
-print(segment.name)  # имя передать процессам-читателям
+- Linux x86_64 и aarch64;
+- Windows x64;
+- macOS arm64.
+
+Готовые файлы доступны в артефактах задачи `wheels` в GitHub Actions. Для установки скачанного wheel:
+
+```bash
+pip install ./shmobj-<version>-cp311-abi3-<platform>.whl
 ```
 
-Читатель подключается к уже созданному сегменту:
+> `shmobj.channel` поддерживается на Linux и Windows. На macOS конструкторы канала и `socketpair()` возвращают
+`NotImplementedError`.
 
-```python
-import shmobj
+### Сборка из исходников
 
-with shmobj.attach(segment_name) as segment:
-    users = segment.root["users"]
+Нужен Rust stable:
 
-    print(users[0].get_many(["id", "name"]))
-    total = sum(user["score"] for user in users.iter_values())
+```bash
+pip install git+https://github.com/Aleksandrln/shmobj
 ```
 
-### Пул воркеров
+## Использование
 
-Каждый воркер подключается к сегменту один раз, в `initializer`:
+| Нужно | Чем | Раздел |
+|---|---|---|
+| Один набор данных на все процессы | `create` / `attach` по имени | [Общий набор данных](#общий-набор-данных) |
+| Набор в файле или в `bytes` из кеша и сети | `dumps` / `loads` | [Файл, mmap и bytes](#файл-mmap-и-bytes) |
+| Писатель обновляет данные, читатели получают каждый снимок | `channel` (Linux, Windows) | [Pub/Sub](#pubsub) |
+| Процессы независимы, читатель берёт последний снимок, когда нужно | `latest` (любая ОС) | [Последний снимок по имени](#последний-снимок-по-имени) |
+
+### Общий набор данных
+
+Процесс-владелец создаёт сегмент и передаёт его имя другим процессам любым способом: аргументом, переменной окружения,
+через `initializer` пула. Каждый воркер подключается один раз:
 
 ```python
 import multiprocessing
@@ -107,18 +118,49 @@ def score(i):
 
 if __name__ == "__main__":
     data = {"users": [{"id": i, "score": i % 100} for i in range(100_000)]}
-    with shmobj.create(data) as segment:
+    # unlink_on_close: выход из with удаляет сегмент из ОС, без него — только закрывает
+    with shmobj.create(data, unlink_on_close=True) as segment:
         with multiprocessing.Pool(8, initializer=init, initargs=(segment.name,)) as pool:
             print(sum(pool.map(score, range(len(data["users"])), chunksize=10_000)))
-        segment.unlink()  # удалить имя из ОС; выход из with только закрывает сегмент
 ```
 
-## Обновление данных
+### Файл, mmap и bytes
+
+`dumps` даёт тот же формат, что и сегмент, а `loads` открывает его поверх любого буфера: `bytes`, `mmap`,
+`SharedMemory`. Именованный сегмент для этого не нужен:
+
+- **Файл и `mmap`.** Набор собирается один раз и пишется в файл; процессы отображают файл в память и читают его
+  страницы из кеша ОС — тоже одна копия на всех. Файл переживает перезапуск и перезагрузку, его можно выкладывать
+  вместе с приложением. Подключение по-прежнему мгновенное: ОС подгружает с диска только прочитанные страницы.
+- **Общий файловый дескриптор.** Буфер передаётся другому процессу дескриптором (memfd, файл, унаследованный при
+  запуске), а не по имени; после закрытия всех дескрипторов ОС освобождает память сама. Так устроен Pub/Sub на Linux.
+- **`bytes` из кеша или сети.** Большой блоб из Redis, с диска или по сокету читается выборочно: нужные поля без
+  распаковки всего, как пришлось бы с `pickle` или JSON.
+
+```python
+import mmap
+import shmobj
+
+blob = shmobj.dumps(data)
+root = shmobj.loads(blob)  # прокси поверх bytes
+
+with open("data.bin", "wb") as file:  # один раз, при сборке набора
+    file.write(blob)
+
+with open("data.bin", "rb") as file:  # в каждом процессе
+    mapped = mmap.mmap(file.fileno(), 0, access=mmap.ACCESS_READ)
+    root = shmobj.loads(mapped)
+```
+
+`dumps_into(obj, alloc)` записывает данные непосредственно в предоставленный буфер без промежуточного объекта
+`bytes`.
+
+### Обновление данных
 
 Набор данных доступен только для чтения. Чтобы его изменить, публикуют новый набор целиком (снимок), а читатели
 переключаются на него.
 
-### Pub/Sub
+#### Pub/Sub
 
 `shmobj.channel` — Pub/Sub поверх сокетов: один писатель (`Publisher`), сколько угодно читателей (`Subscriber`).
 Снимок собирается один раз на всех. Читатель держит ссылку на последний принятый: `subscriber.latest`, либо получает
@@ -130,24 +172,27 @@ Windows — имя). Старые снимки освобождаются, ко�
 Подключившийся читатель сразу получает последний снимок. Поддерживается на **Linux и Windows**. После завершения или
 падения любой из сторон ресурсы освобождает ОС.
 
+На Linux у канала нет имён в файловой системе. Снимок — memfd без имени. Абстрактный адрес `"\0имя"` — имя самого
+сокета, а не файл. Ядро освобождает и то и другое, когда закрыт последний дескриптор, в том числе после `kill -9`,
+поэтому перезапущенный писатель сразу занимает прежний адрес. У абстрактного адреса нет прав доступа: подключиться
+или занять имя первым может любой процесс. Видно оно только внутри своего сетевого namespace, из другого контейнера
+его не найти.
+
 Один писатель и несколько читателей — например, воркеры Gunicorn или Uvicorn. Писатель:
 
 ```python
 import itertools
-import os
 import sys
-import tempfile
 import time
 
 from shmobj import channel
 
-WINDOWS = sys.platform == "win32"
+# Постоянный адрес: к перезапущенному писателю читатели подключаются по нему же.
+# Linux — абстрактный AF_UNIX: файла нет, имя освобождается вместе с писателем. Windows — TCP на loopback.
+ADDRESS = ("127.0.0.1", 50555) if sys.platform == "win32" else "\0snapshots"
 
-with tempfile.TemporaryDirectory() as tmp, channel.Publisher() as pub:
-    # Linux — путь сокета AF_UNIX, Windows — TCP на loopback, порт 0 — любой свободный.
-    listener = channel.listen(("127.0.0.1", 0) if WINDOWS else os.path.join(tmp, "snapshots.sock"))
-    address = pub.accept_in_thread(listener)  # подписывать подключения в фоновом потоке
-    print(address, flush=True)  # передать читателям: путь или (host, port)
+with channel.Publisher() as pub:
+    pub.accept_in_thread(channel.listen(ADDRESS))  # подписывать подключения в фоновом потоке
     for tick in itertools.count():
         # Читатели приходят и уходят; без читателей снимок только запоминается для следующего.
         pub.publish({"tick": tick, "vms": {vm: {"cpu": tick % 100} for vm in range(100, 110)}})
@@ -158,129 +203,48 @@ with tempfile.TemporaryDirectory() as tmp, channel.Publisher() as pub:
 
 ```python
 import sys
-
-from shmobj import channel
-
-address = sys.argv[1]  # на Windows — ("127.0.0.1", порт)
-
-with channel.Subscriber(channel.connect(address)) as sub:
-    # wait() спит, пока не придёт снимок: True — sub.latest сменился, False — писатель закрыл канал.
-    while sub.wait():
-        root = sub.latest  # FrozenDict поверх общей памяти, без копирования
-        print(f"tick={root['tick']} cpu[101]={root['vms'][101]['cpu']}")
-```
-
-Писатель упал или перезапустился — у читателя канал закрыт (`sub.closed`), подключаться нужно заново.
-
-#### Писатель запускает читателя сам
-
-Пара сокетов, второй конец дочерний процесс наследует (`spawn_kwargs` — аргументы `subprocess.Popen` и
-`asyncio.create_subprocess_exec`). Адрес и файл сокета не нужны:
-
-```python
-import subprocess
-import sys
 import time
 
 from shmobj import channel
 
-pub_end, sub_end = channel.socketpair()
-with sub_end:  # копия остаётся у ребёнка; без закрытия своей ребёнок не узнает о закрытии канала
-    child = subprocess.Popen([sys.executable, "child.py", str(sub_end.fileno())], **channel.spawn_kwargs(sub_end))
+ADDRESS = ("127.0.0.1", 50555) if sys.platform == "win32" else "\0snapshots"
 
-with channel.Publisher(pub_end) as pub:
-    for tick in range(5):
-        pub.publish({"tick": tick})
-        time.sleep(0.1)
-child.wait()  # выход из with закрыл канал, wait() у ребёнка вернул False
+while True:
+    try:
+        sock = channel.connect(ADDRESS)
+    except ConnectionRefusedError:  # писатель ещё не запущен или перезапускается
+        time.sleep(1)
+        continue
+    with channel.Subscriber(sock) as sub:
+        # wait() спит, пока не придёт снимок: True — sub.latest сменился, False — писатель закрылся или упал.
+        while sub.wait():
+            root = sub.latest  # FrozenDict поверх общей памяти, без копирования
+            print(f"tick={root['tick']} cpu[101]={root['vms'][101]['cpu']}")
 ```
 
-`child.py`:
+Встроенного переподключения нет: `Subscriber` получает готовый сокет, а после закрытия канала читатель
+подключается заново, как во внешнем цикле примера. Новый писатель сразу присылает свой последний снимок.
 
-```python
-import socket
-import sys
+Другие варианты подключения:
 
-from shmobj import channel
+- писатель запускает читателя сам — пара сокетов `socketpair()`, второй конец ребёнок наследует через
+  `spawn_kwargs()`, адрес не нужен: [examples/channel_sync.py](examples/channel_sync.py);
+- asyncio — `accept_in_loop` у писателя, колбэк `attach` у читателя: [examples/channel_async.py](examples/channel_async.py);
+- несколько каналов в одном потоке — `Subscriber.fileno()` в своём `selectors`, приём — `receive()` без ожидания;
+- Linux, путь к файлу вместо абстрактного имени — файл остаётся и после выхода писателя, перед `listen` его удаляют.
 
-with channel.Subscriber(socket.socket(fileno=int(sys.argv[1]))) as sub:
-    while sub.wait():
-        print("tick", sub.latest["tick"])
-```
+Несколько читателей одного писателя целиком — [examples/channel_fanout.py](examples/channel_fanout.py), устройство
+канала — [doc/usage.md](doc/usage.md#канал-снимков-linux-windows).
 
-#### Абстрактный адрес (Linux)
-
-Адрес `"\0имя"` не создаёт файла и исчезает вместе с писателем; читатель знает имя заранее:
-
-```python
-# писатель
-pub = channel.Publisher(name="metrics")  # name — имя memfd, видно в /proc/<pid>/maps
-pub.accept_in_thread(channel.listen("\0metrics"))
-pub.publish({"vms": {101: {"cpu": 0.5}}})
-
-# читатель, когда нужно
-sub = channel.Subscriber(channel.connect("\0metrics"))
-sub.wait(timeout=1)  # первый снимок мог ещё не дойти; дальше — sub.receive() без ожидания
-print(sub.latest["vms"][101]["cpu"])
-```
-
-#### asyncio
-
-Писатель принимает подключения в цикле (`accept_in_loop`, без потока), читатель получает колбэк на каждый снимок
-(`attach`):
-
-```python
-import asyncio
-
-from shmobj import channel
-
-
-async def writer(address):
-    with channel.Publisher() as pub:
-        pub.accept_in_loop(channel.listen(address))
-        for tick in range(5):
-            pub.publish({"tick": tick})
-            await asyncio.sleep(0.1)
-
-
-async def reader(address):
-    with channel.Subscriber(channel.connect(address)) as sub:
-        sub.attach(lambda root: print("tick", root["tick"]))  # исключения — в обработчик исключений цикла
-        await asyncio.sleep(1)
-```
-
-#### Несколько каналов в одном потоке
-
-`Subscriber` отдаёт `fileno()`: его можно ждать в своём `selectors` вместе с другими сокетами, а принимать —
-`receive()` без ожидания:
-
-```python
-import selectors
-
-from shmobj import channel
-
-with selectors.DefaultSelector() as sel:
-    for name in ("metrics", "prices"):
-        sel.register(channel.Subscriber(channel.connect("\0" + name)), selectors.EVENT_READ, name)
-    while sel.get_map():
-        for key, _ in sel.select():
-            sub = key.fileobj
-            if sub.receive():  # True — sub.latest сменился
-                print(key.data, sub.latest["tick"])
-            if sub.closed:  # писатель закрыл канал
-                sel.unregister(sub)
-```
-
-Запускаемые примеры — в каталоге [examples](examples), устройство канала — в
-[doc/usage.md](doc/usage.md#канал-снимков-linux-windows).
-
-### Последний снимок по имени
+#### Последний снимок по имени
 
 `shmobj.latest` — без сокетов: писатель кладёт снимок под именем, читатель забирает последний, когда нужен.
 Процессы запускаются в любом порядке, писателя может ещё не быть, его перезапуск читателям не мешает.
 Работает на **Linux, Windows и macOS**.
 
 ```python
+import time
+
 from shmobj import latest
 
 # писатель
@@ -289,21 +253,10 @@ writer.put({"vms": {101: {"cpu": 0.5}}})  # прежний снимок удал
 
 # читатель, в любом процессе
 reader = latest.Reader("metrics")
-root = reader.get()  # None — снимков ещё не было; тот же объект, пока снимок не сменился
-```
-
-Читатель, который реагирует на смену снимка:
-
-```python
-import time
-
-from shmobj import latest
-
-reader = latest.Reader("metrics")
 seen = None
 while True:
-    root = reader.get()
-    if root is not None and root is not seen:  # тот же объект — снимок не сменился
+    root = reader.get()  # None — снимков ещё не было; тот же объект, пока снимок не сменился
+    if root is not None and root is not seen:
         seen = root
         print(root["vms"][101]["cpu"])
     time.sleep(1)
@@ -311,21 +264,15 @@ while True:
 
 Снимки — именованные сегменты, номер текущего лежит в маленьком управляющем сегменте с тем же именем.
 О новом снимке читатель узнаёт только опросом `get()` (проверка — чтение 40 байт). `writer.close()` и выход
-интерпретатора удаляют имена писателя; читатели дочитывают уже открытое. После падения писателя на Linux и
-macOS имена остаются (см. [жизненный цикл](#жизненный-цикл-сегмента)) — следующий `Writer` с тем же именем
-подхватывает их и удаляет.
+интерпретатора удаляют имена писателя; читатели дочитывают уже открытое.
 
-### Что выбрать
+На Linux и macOS имя сегмента — объект POSIX shared memory (на Linux — файл в `/dev/shm`). Он существует до
+`shm_unlink`, а не до выхода процесса, поэтому читатель находит снимок по имени без живого писателя. Обратная
+сторона: после падения писателя имена остаются (см. [жизненный цикл](#жизненный-цикл-сегмента)), их подхватывает и
+удаляет следующий `Writer` с тем же именем. На Windows сегмент пропадает с последним открытым handle.
 
-| Нужно | Чем |
-|---|---|
-| Набор данных задаётся один раз | `create` / `attach` по имени или файл + `mmap` |
-| Писатель запускает читателя сам, уведомление о каждом снимке | `channel`: `socketpair` + `spawn_kwargs` |
-| Один писатель, много воркеров, уведомление о каждом снимке | `channel`: `listen` / `connect` |
-| Процессы живут независимо, читатель берёт последний снимок, когда нужно; macOS | `latest` |
-
-Канал после падения любой стороны ничего не оставляет в ОС, и снимок на Linux запечатан от изменения.
-У `latest` уведомления нет, а неизменность снимка держится на писателе.
+Канал после падения любой стороны ничего не оставляет в ОС, и снимок на Linux запечатан от изменения, но работает
+только на Linux и Windows. У `latest` уведомления нет, а неизменность снимка держится на писателе.
 
 ## Почему не готовые решения
 
@@ -377,37 +324,6 @@ Python-объектов это не работает:
 
 Контейнеры доступны только для чтения. Для изменения данных нужно создать и опубликовать новый сегмент.
 
-### Работа с буферами и файлами
-
-`dumps` даёт тот же формат, что и сегмент, а `loads` открывает его поверх любого буфера: `bytes`, `mmap`,
-`SharedMemory`. Именованный сегмент для этого не нужен:
-
-- **Файл и `mmap`.** Набор собирается один раз и пишется в файл; процессы отображают файл в память и читают его
-  страницы из кеша ОС — тоже одна копия на всех. Файл переживает перезапуск и перезагрузку, его можно выкладывать
-  вместе с приложением. Подключение по-прежнему мгновенное: ОС подгружает с диска только прочитанные страницы.
-- **Общий файловый дескриптор.** Буфер передаётся другому процессу дескриптором (memfd, файл, унаследованный при
-  запуске), а не по имени; после закрытия всех дескрипторов ОС освобождает память сама. Так устроен Pub/Sub на Linux.
-- **`bytes` из кеша или сети.** Большой блоб из Redis, с диска или по сокету читается выборочно: нужные поля без
-  распаковки всего, как пришлось бы с `pickle` или JSON.
-
-```python
-import mmap
-import shmobj
-
-blob = shmobj.dumps(data)
-root = shmobj.loads(blob)  # прокси поверх bytes
-
-with open("data.bin", "wb") as file:  # один раз, при сборке набора
-    file.write(blob)
-
-with open("data.bin", "rb") as file:  # в каждом процессе
-    mapped = mmap.mmap(file.fileno(), 0, access=mmap.ACCESS_READ)
-    root = shmobj.loads(mapped)
-```
-
-`dumps_into(obj, alloc)` записывает данные непосредственно в предоставленный буфер без промежуточного объекта
-`bytes`.
-
 ### Проверка целостности и отладка
 
 - `attach(name, verify=True)` проверяет контрольную сумму сегмента при подключении.
@@ -415,42 +331,12 @@ with open("data.bin", "rb") as file:  # в каждом процессе
   `FormatError`.
 - PyCharm и VS Code показывают прокси как обычные контейнеры — плагин `pydevd` устанавливается вместе с пакетом.
 
-## Установка
-
-- Ядро на Rust, Python bindings через PyO3.
-- **CPython 3.11 или новее**, ABI3: один wheel для разных версий CPython.
-- Версия 1 — только чтение: опубликованные данные нельзя изменить.
-
-### Готовые wheels
-
-CI собирает wheels для следующих платформ:
-
-- Linux x86_64 и aarch64;
-- Windows x64;
-- macOS arm64.
-
-Готовые файлы доступны в артефактах задачи `wheels` в GitHub Actions. Для установки скачанного wheel:
-
-```bash
-pip install ./shmobj-<version>-cp311-abi3-<platform>.whl
-```
-
-> `shmobj.channel` поддерживается на Linux и Windows. На macOS конструкторы канала и `socketpair()` возвращают
-`NotImplementedError`.
-
-### Сборка из исходников
-
-Нужен Rust stable:
-
-```bash
-pip install git+https://github.com/Aleksandrln/shmobj
-```
-
 ## Жизненный цикл сегмента
 
 - `close()` закрывает сегмент в текущем процессе. Контекстный менеджер вызывает `close()` автоматически.
 - `unlink()` удаляет именованный сегмент из ОС и обычно вызывается процессом-владельцем, когда данные больше не нужны.
-  Выход из `with` сам по себе не вызывает `unlink()`.
+  Выход из `with` сам по себе не вызывает `unlink()`; `create(..., unlink_on_close=True)` — вызывает: `close()`
+  создателя удаляет и имя.
 - Прокси удерживают ссылку на `Segment`: память не освобождается, пока существует хотя бы один прокси.
 - После `close()` обращение через ранее созданные прокси вызывает `SegmentClosedError`.
 - Процессы, уже подключившиеся к сегменту, могут продолжать читать его после `unlink()` до собственного `close()`.
