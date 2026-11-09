@@ -13,6 +13,11 @@ maturin develop --release        # собрать shmobj._core и постави
 `maturin develop` без `--release` собирает debug-версию: она в ~10 раз медленнее,
 для замеров скорости не подходит.
 
+Rust без Python: `cargo build --release` собирает ядро (`crates/shmobj-core`) и расширение
+(`crates/shmobj-py`, на Linux — `target/release/lib_core.so`). Эта библиотека — не пакет: модулем `shmobj._core` с Python-частью
+из `python/` его делает maturin (`develop` или `build`). Колесо — `maturin build --release -o dist`, подробности —
+[usage.md](usage.md#сборка).
+
 Версия пакета — `version` в `crates/shmobj-py/Cargo.toml` (`pyproject.toml` берёт её оттуда, `dynamic`),
 у `crates/shmobj-core` — та же. До первого выпуска — `0.1.0`.
 

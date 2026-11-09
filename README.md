@@ -81,11 +81,32 @@ pip install ./shmobj-<version>-cp311-abi3-<platform>.whl
 
 ### Сборка из исходников
 
-Нужен Rust stable:
+Нужны CPython 3.11+ и Rust stable. Rust ставится через [rustup](https://rustup.rs). На Linux и macOS:
+
+```bash
+curl --proto '=https' --tlsv1.2 -sSf https://sh.rustup.rs | sh
+```
+
+На Windows — `rustup-init.exe` с того же сайта и Visual Studio Build Tools с компонентом C++ (линкер MSVC).
+
+Установка прямо из репозитория — pip сам скачает maturin и соберёт колесо:
 
 ```bash
 pip install git+https://github.com/Aleksandrln/shmobj
 ```
+
+Колесо из клона репозитория:
+
+```bash
+git clone https://github.com/Aleksandrln/shmobj
+cd shmobj
+pip install maturin
+maturin build --release -o dist   # dist/shmobj-<версия>-cp311-abi3-<платформа>.whl
+pip install dist/shmobj-*.whl
+```
+
+Колесо, собранное на Linux, привязано к glibc этой машины. Переносимое Linux-колесо и колесо Windows, собранное на
+Linux, — в [doc/usage.md](doc/usage.md#сборка), окружение разработки — в [doc/dev.md](doc/dev.md).
 
 ## Использование
 
