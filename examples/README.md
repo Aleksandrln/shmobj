@@ -5,7 +5,7 @@
 
 | Файл | Что показывает |
 |---|---|
-| `shared_pool.py` | Один набор на пул: `create` в создателе, имя сегмента — аргументом задачи, `attach` один раз на воркер (`functools.cache`) |
+| `shared_pool.py` | Один набор на пул: `create` в создателе, `attach` в `initializer` воркеров |
 | `file_mmap.py` | Набор в файле: `dumps` один раз, `loads` поверх `mmap` в каждом воркере |
 | `channel_writer.py` + `channel_reader.py` | Канал без asyncio: адрес, приём подписчиков в потоке, `connect(wait_writer=True)`, `wait()`, переподключение после ухода писателя |
 | `channel_writer_async.py` + `channel_reader_async.py` | То же в asyncio: `accept_in_loop`, `connect_async`, `wait_async()` |
