@@ -20,9 +20,7 @@ maturin develop --release        # собрать shmobj._core и постави
 
 ## Релиз
 
-CI (`.github/workflows/ci.yml`) запускается только вручную (Actions → ci → Run workflow) и по тегу `v*`: репозиторий
-приватный, бесплатная квота Actions — 2000 минут в месяц, минута macOS считается за 10, Windows — за 2. Прогон —
-проверки (`rust`, `python`), колёса (`wheels`) и sdist (`sdist`); по тегу ещё и `release`.
+Прогон —проверки (`rust`, `python`), колёса (`wheels`) и sdist (`sdist`); по тегу ещё и `release`.
 
 1. Поднять `version` в `crates/shmobj-py/Cargo.toml` и `crates/shmobj-core/Cargo.toml`, `cargo check` (обновит
    `Cargo.lock`), слить в `master`.

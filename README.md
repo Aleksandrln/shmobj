@@ -298,17 +298,21 @@ with open("data.shmobj", "rb") as file:  # в каждом процессе: с�
 
 ## Сборка из исходников
 
+### Вариант для ленивых
+
+Прямо из репозитория. (pip сам скачает maturin и соберёт колесо):
+
+```bash
+pip install git+https://github.com/Aleksandrln/shmobj
+```
+
+## Полная сборка из каталога проекта
+
 Нужны CPython 3.11+ и Rust stable ([rustup](https://rustup.rs)); на Windows ещё Visual Studio Build Tools с компонентом
 C++. Rust на Linux и macOS:
 
 ```bash
 curl --proto '=https' --tlsv1.2 -sSf https://sh.rustup.rs | sh
-```
-
-Прямо из репозитория (pip сам скачает maturin и соберёт колесо):
-
-```bash
-pip install git+https://github.com/Aleksandrln/shmobj
 ```
 
 Колесо из клона; maturin — в venv (в Debian и Ubuntu `pip install` вне venv запрещён, PEP 668):
