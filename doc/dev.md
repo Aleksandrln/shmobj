@@ -20,8 +20,9 @@ maturin develop --release        # собрать shmobj._core и постави
 
 ## Релиз
 
-CI (`.github/workflows/ci.yml`) на каждый пуш и PR гоняет только проверки (`rust`, `python`). Колёса (`wheels`) и
-sdist (`sdist`) собираются для тега `v*` и при ручном запуске.
+CI (`.github/workflows/ci.yml`) запускается только вручную (Actions → ci → Run workflow) и по тегу `v*`: репозиторий
+приватный, бесплатная квота Actions — 2000 минут в месяц, минута macOS считается за 10, Windows — за 2. Прогон —
+проверки (`rust`, `python`), колёса (`wheels`) и sdist (`sdist`); по тегу ещё и `release`.
 
 1. Поднять `version` в `crates/shmobj-py/Cargo.toml` и `crates/shmobj-core/Cargo.toml`, `cargo check` (обновит
    `Cargo.lock`), слить в `master`.
@@ -102,5 +103,5 @@ pytest                            # tests/: golden, сверка с эталон
   едет в колесо рядом с `shmobj`. В `pydevd_plugins/` и `extensions/` нет `__init__.py`: пакеты
   принадлежат pydevd, плагин — только часть пространства имён. Проверка — `tests/test_debugger.py`
   (нужен `pydevd-pycharm`, без него тест пропускается).
-- CI (`.github/workflows/ci.yml`): `rust`, `python` (Linux, Windows, macOS × Python 3.11 и 3.14) на каждый пуш и PR;
-  `wheels`, `sdist`, `release` — см. «Релиз».
+- CI (`.github/workflows/ci.yml`): только ручной запуск и тег `v*`; `rust`, `python` (Linux, Windows, macOS × Python
+  3.11 и 3.14), `wheels`, `sdist`, `release` — см. «Релиз».

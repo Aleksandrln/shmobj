@@ -1,8 +1,9 @@
 name: ci
+# Только вручную и по тегу: репозиторий приватный, минуты Actions платные сверх квоты (macOS ×10, Windows ×2).
 on:
   push:
-  pull_request:
-  workflow_dispatch:  # ручной запуск: колёса и sdist без релиза
+    tags: ["v*"]
+  workflow_dispatch:  # ручной запуск: проверки, колёса и sdist без релиза
 
 jobs:
   rust:
@@ -30,9 +31,7 @@ jobs:
       - run: maturin build --release -o dist && pip install --no-index --find-links dist shmobj
       - run: pytest
 
-  # Колёса и sdist — только для тега v* и ручного запуска.
   wheels:
-    if: startsWith(github.ref, 'refs/tags/v') || github.event_name == 'workflow_dispatch'
     needs: [rust, python]
     strategy:
       matrix:
@@ -53,7 +52,6 @@ jobs:
         with: { name: "wheel-${{ matrix.os }}-${{ matrix.target }}", path: dist }
 
   sdist:
-    if: startsWith(github.ref, 'refs/tags/v') || github.event_name == 'workflow_dispatch'
     needs: [rust, python]
     runs-on: ubuntu-latest
     steps:
