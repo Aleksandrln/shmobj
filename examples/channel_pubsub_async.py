@@ -26,8 +26,10 @@ def snapshot(tick):
 async def writer():
     with channel.Publisher() as pub:
         pub.accept_in_loop(channel.listen(ADDRESS))  # подключения подписывает текущий цикл
+        print(f"писатель: слушаю {ADDRESS!r}")
         for tick in itertools.count():
-            pub.publish(snapshot(tick))  # не блокирует: вызывается прямо из корутины
+            delivered = pub.publish(snapshot(tick))  # не блокирует: вызывается прямо из корутины
+            print(f"писатель: tick={tick} подписчиков={pub.subscribers}{'' if delivered else ' (кто-то отстал)'}")
             await asyncio.sleep(INTERVAL)
 
 

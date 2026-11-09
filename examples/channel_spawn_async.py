@@ -6,6 +6,7 @@ ProactorEventLoop, — через задачу с `sock_recv`). Получив �
 """
 import asyncio
 import itertools
+import os
 import socket
 import sys
 
@@ -21,12 +22,15 @@ def snapshot(tick: int) -> dict:
 
 async def writer(fileno: int) -> None:
     # Windows: снимок, не подтверждённый читателем до выхода писателя, теряется
+    # stdout общий с читателем: строка — одной записью, чтобы не смешалась с его выводом
+    sys.stdout.write(f"писатель {os.getpid()}: запущен\n")
     with channel.Publisher(socket.socket(fileno=fileno)) as pub:
         for tick in itertools.count():
             try:
                 pub.publish(snapshot(tick))  # False — читатель отстал, снимок пропущен
             except BrokenPipeError:
-                return  # читатель закрыл канал
+                sys.stdout.write(f"писатель {os.getpid()}: читатель закрыл канал на tick={tick}\n")
+                return
             await asyncio.sleep(INTERVAL)
 
 

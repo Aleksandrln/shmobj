@@ -12,13 +12,12 @@
 | Канал `shmobj.channel` | Linux — memfd, Windows — именованные снимки с подтверждением; несколько подписчиков, `listen`/`connect`/`connect_async` с ожиданием писателя, приём подключений в потоке и в asyncio, `wait`/`wait_async`/`attach`. macOS — `SUPPORTED = False` |
 | `shmobj.latest` | `Writer.put`/`Reader.get` по имени, любая ОС; уборка имён в `close()` и при выходе, подхват после падения писателя |
 | Отладчик | Плагин pydevd в колесе |
-| CI | Вручную и по тегу: fmt, clippy, `cargo test`, pytest на Linux/Windows/macOS × 3.11/3.14, колёса, sdist; по тегу — GitHub Release |
 
-Проверено на Linux (Python 3.11–3.13) и Windows. macOS — только в CI, `shmobj.latest` там ещё не запускался.
+Проверено на Linux (Python 3.11–3.13) и Windows. macOS не проверялась.
 
 ## Нет
 
-- fuzz-целей (`validate`, случайный доступ) и задачи `fuzz-smoke` в CI; proptest круговой сборки в ядре.
+- fuzz-целей (`validate`, случайный доступ); proptest круговой сборки в ядре.
 - Тестов утечек (10⁶ операций: `sys.getrefcount` сегмента, `len(gc.get_objects())`, RSS), бенчмарков
   (`benches/`, `tests/bench_*.py`), полного перебора повреждений golden (≥ 10⁵ вариантов).
 - Целей по скорости (таблица ниже).
@@ -96,7 +95,7 @@ Release, Linux x86_64, Python 3.13. Набор — 10 000 записей
 
 ## Следующие шаги
 
-1. fuzz-цели и `fuzz-smoke` в CI; proptest для круговой сборки в ядре.
+1. fuzz-цели; proptest для круговой сборки в ядре.
 2. Бенчмарки, затем профиль и оптимизации (ниже) с замерами до и после.
 3. Тесты утечек, полный перебор повреждений golden.
 4. После v1: `pickle` прокси как (имя сегмента, смещение); buffer protocol у типизированных `FrozenList` (zero-copy в

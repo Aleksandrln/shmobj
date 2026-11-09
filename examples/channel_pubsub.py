@@ -25,10 +25,12 @@ def snapshot(tick):
 def writer():
     with channel.Publisher() as pub:
         pub.accept_in_thread(channel.listen(ADDRESS))  # новый читатель сразу получает последний снимок
+        print(f"писатель: слушаю {ADDRESS!r}")
         for tick in itertools.count():
             # Снимок собирается один раз на всех. Без читателей только запоминается для следующего;
             # False — кто-то отстал, ему этот снимок пропущен.
-            pub.publish(snapshot(tick))
+            delivered = pub.publish(snapshot(tick))
+            print(f"писатель: tick={tick} подписчиков={pub.subscribers}{'' if delivered else ' (кто-то отстал)'}")
             time.sleep(INTERVAL)
 
 

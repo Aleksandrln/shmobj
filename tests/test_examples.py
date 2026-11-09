@@ -28,7 +28,10 @@ def _run(script):
 
 @pytest.mark.parametrize("script", ["shared_pool.py", "file_mmap.py"])
 def test_pool_example(script):
-    assert _run(script) == [str(1000 * sum(range(100)))]
+    lines = _run(script)
+    assert lines[0].startswith("создатель: ")
+    assert len([line for line in lines if line.startswith("воркер ")]) == 4
+    assert f"сумма score: {1000 * sum(range(100))}" in lines
 
 
 @needs_channel
@@ -36,7 +39,9 @@ def test_pool_example(script):
 def test_channel_spawn_example(script):
     lines = _run(script)
     assert lines[-1].startswith("последний: tick=") and int(lines[-1].rsplit("=", 1)[1]) >= 20
-    assert lines[-2].startswith("tick=")
+    assert [line for line in lines if line.startswith("tick=")]
+    writer = [line for line in lines if line.startswith("писатель ")]
+    assert len(writer) == 2 and writer[0].endswith(": запущен") and "читатель закрыл канал" in writer[1]
 
 
 @needs_channel

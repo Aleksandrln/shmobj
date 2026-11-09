@@ -41,6 +41,7 @@ def writer() -> None:
         # новому читателю сразу уходит последний снимок. В asyncio — accept_in_loop, без потока.
         # Возвращает адрес для connect: путь сокета или (host, port) с выданным портом.
         address = pub.accept_in_thread(listener)
+        print(f"писатель: слушаю {address!r}, запускаю читателей: {READERS}", flush=True)
         readers = [
             _create_process(mode="--reader", address=str(address[1]) if WINDOWS else address) for _ in
             range(READERS)

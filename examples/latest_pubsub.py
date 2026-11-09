@@ -25,6 +25,7 @@ def writer():
     with latest.Writer(NAME) as w:
         for tick in itertools.count():
             w.put(snapshot(tick))
+            print(f"писатель: tick={tick} под именем {NAME!r}")
             time.sleep(INTERVAL)
 
 
