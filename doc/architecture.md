@@ -80,4 +80,3 @@ Python-кадров на шаг.
 | [PEP 412](https://peps.python.org/pep-0412/) | Общая таблица ключей для словарей с одинаковыми ключами — KEYTABLE |
 | [CPython `shared_memory.py`](https://github.com/python/cpython/blob/main/Lib/multiprocessing/shared_memory.py) | `SharedMemory` как носитель, `track` и `resource_tracker`; ошибки `ShareableList` (потеря `\0` в конце строк), которых нет в формате |
 | [FlexBuffers](https://flatbuffers.dev/flexbuffers/), [rkyv](https://rkyv.org) | Бессхемный zero-copy формат с типизированными векторами; относительные смещения и проверка перед доступом |
-| [orjson](https://github.com/ijl/orjson) | Быстрое создание `str` из UTF-8 — образец для будущего быстрого пути |
