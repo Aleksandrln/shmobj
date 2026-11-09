@@ -291,23 +291,42 @@ with open("data.shmobj", "rb") as file:  # в каждом процессе: с�
 
 - [Руководство](doc/usage.md) — сегменты, файлы, проверка данных, `channel`, `latest` и отладчик.
 - [API Reference](doc/api.md) — описание публичного API.
-- [Сборка](doc/build.md) — устройство wheel и варианты сборки.
+- [Сборка](doc/build.md) — устройство колеса и переносимые сборки.
 - [Формат данных](doc/format.md) и [архитектура](doc/architecture.md) — бинарный формат и внутреннее устройство.
 - [Разработка](doc/dev.md) — тесты и выпуск релизов.
 - [Замеры и состояние проекта](doc/status.md).
 
 ## Сборка из исходников
 
-Для сборки требуется стабильная версия Rust ([rustup](https://rustup.rs)). Проект использует ABI3: одно колесо подходит
-для всех поддерживаемых версий CPython начиная с 3.11.
+Нужны CPython 3.11+ и Rust stable ([rustup](https://rustup.rs)); на Windows ещё Visual Studio Build Tools с компонентом
+C++. Rust на Linux и macOS:
 
-Установить библиотеку из Git-репозитория:
+```bash
+curl --proto '=https' --tlsv1.2 -sSf https://sh.rustup.rs | sh
+```
+
+Прямо из репозитория (pip сам скачает maturin и соберёт колесо):
 
 ```bash
 pip install git+https://github.com/Aleksandrln/shmobj
 ```
 
-Инструкции по сборке wheel из клона репозитория и созданию переносимых колёс: [doc/build.md](doc/build.md).
+Колесо из клона; maturin — в venv (в Debian и Ubuntu `pip install` вне venv запрещён, PEP 668):
+
+```bash
+git clone https://github.com/Aleksandrln/shmobj
+cd shmobj
+python3 -m venv .venv
+. .venv/bin/activate              # Windows: .venv\Scripts\activate
+pip install maturin
+maturin build --release -o dist   # dist/shmobj-<версия>-cp311-abi3-<платформа>.whl
+maturin sdist -o dist             # исходники
+```
+
+Колесо ставится в любое окружение с CPython 3.11+ на той же платформе: `pip install dist/shmobj-*.whl`. Без
+`--release` сборка примерно в 10 раз медленнее. `cargo build --release` собирает только библиотеку, а не пакет.
+
+Устройство колеса и переносимые сборки (старая glibc, Windows из Linux): [doc/build.md](doc/build.md).
 
 ## Лицензия
 
