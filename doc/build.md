@@ -51,6 +51,3 @@ maturin build --release --strip --target x86_64-pc-windows-gnu -o dist   # shmob
 
 `_core.pyd` зависит только от `python3.dll` и системных dll (`objdump -p`). `--zig` для этой цели не годится:
 maturin 1.16 пишет в `.def` экспорт `PyInit_shmobj._core`, и линковка падает.
-
-Колёса всех платформ (Linux x86_64/aarch64 в manylinux-контейнере, Windows x64, macOS arm64) собирает CI —
-см. [dev.md](dev.md#релиз).

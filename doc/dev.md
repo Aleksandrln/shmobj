@@ -18,36 +18,7 @@ maturin develop --release        # собрать shmobj._core и постави
 Версия пакета — `version` в `crates/shmobj-py/Cargo.toml` (`pyproject.toml` берёт её оттуда, `dynamic`),
 у `crates/shmobj-core` — та же. До первого выпуска — `0.1.0`.
 
-## Релиз
-
-CI (`.github/workflows/ci.yml`) запускается вручную (Actions → ci → Run workflow) и по тегу `v*`: проверки (`rust`,
-`python`), колёса (`wheels`) и sdist (`sdist`); по тегу ещё и `release`.
-
-1. Поднять `version` в `crates/shmobj-py/Cargo.toml` и `crates/shmobj-core/Cargo.toml`, `cargo check` (обновит
-   `Cargo.lock`), слить в `master`.
-2. Тег на этом коммите `master`:
-
-   ```bash
-   git checkout master
-   git pull
-   git tag v0.1.0
-   git push origin v0.1.0
-   ```
-
-3. CI прогоняет проверки, собирает колёса и sdist; задача `release` сверяет тег с версией в `Cargo.toml` и создаёт
-   GitHub Release с этими файлами, описание — список PR с прошлого тега (`--generate-notes`). Результат — вкладка
-   Releases репозитория.
-
-Тег не совпал с версией или упала проверка — релиза нет; тег удаляют, исправляют и ставят заново:
-
-```bash
-git push origin :v0.1.0
-git tag -d v0.1.0
-```
-
-Колёса без релиза — Actions → ci → Run workflow: файлы — в артефактах `wheel-*` и `sdist` этого прогона.
-
-## Проверки (то же, что в CI)
+## Проверки
 
 ```bash
 cargo fmt --check
@@ -102,5 +73,3 @@ pytest                            # tests/: golden, сверка с эталон
   едет в колесо рядом с `shmobj`. В `pydevd_plugins/` и `extensions/` нет `__init__.py`: пакеты
   принадлежат pydevd, плагин — только часть пространства имён. Проверка — `tests/test_debugger.py`
   (нужен `pydevd-pycharm`, без него тест пропускается).
-- CI (`.github/workflows/ci.yml`): только ручной запуск и тег `v*`; `rust`, `python` (Linux, Windows, macOS × Python
-  3.11 и 3.14), `wheels`, `sdist`, `release` — см. «Релиз».
