@@ -197,48 +197,46 @@ class _End:
         self.close()
 
 
-class _LoopReceiver:
-    """Приём снимков читателя в цикле asyncio, от `attach` или первого `wait_async` до `detach`.
+def _watch_readable(loop, sock: socket.socket, on_readable: Callable[[], None]) -> Callable[[], None]:
+    """Вызывать `on_readable()` в цикле asyncio, когда сокет готов к чтению; вернуть функцию снятия."""
+    fd = sock.fileno()
+    try:
+        loop.add_reader(fd, on_readable)
+    except NotImplementedError:  # ProactorEventLoop (Windows) не умеет add_reader
+        async def poll() -> None:
+            while sock.fileno() != -1:
+                try:
+                    await loop.sock_recv(sock, 0)  # IOCP: завершается, когда есть данные или конец
+                except OSError:
+                    pass  # конец канала или закрытый сокет разберёт on_readable
+                on_readable()
 
-    Сокет читает только он: новый снимок будит всех ждущих `wait` и вызывает `callback`. Номер снимка `_gen` против
-    `_seen` (последний отданный `wait`) не теряет снимки, принятые между вызовами. Ошибку приёма получают ждущие
-    `wait`; без них — следующий `wait`, если приём включил не `attach`, иначе обработчик исключений цикла. Ему же
-    уходит ошибка, которую до `stop` никто не забрал.
-    """
+        return loop.create_task(poll()).cancel
+    return lambda: loop.remove_reader(fd)  # по запомненному дескриптору: сокет могли закрыть снаружи
 
-    def __init__(self, sub: "_Subscriber", loop, callback: Callable[[Any], None] | None, attached: bool) -> None:
-        self.loop = loop
-        self.callback = callback
-        self.attached = attached  # включил attach: ошибку без ждущих — обработчику цикла, а не следующему wait
-        self.stopped = False
-        self._sub = sub
-        self._fd = sub.fileno()
-        self._waiters: list = []  # future ждущих wait
-        self._error: Exception | None = None  # для следующего wait
-        self._gen = 0  # принятых снимков
-        self._seen = 0
-        self._task = None
-        try:
-            loop.add_reader(self._fd, self._on_readable)
-        except NotImplementedError:  # ProactorEventLoop (Windows) не умеет add_reader
-            self._task = loop.create_task(self._wait_readable())
 
-    async def wait(self, timeout: float | None) -> bool:
+class _Broadcast:
+    """Событие в цикле asyncio, которое будит всех ждущих. Ждущий передаёт `fired`, увиденный в прошлый раз:
+    события между ожиданиями не теряются."""
+
+    def __init__(self, loop) -> None:
+        self.fired = 0
+        self.closed = False
+        self._loop = loop
+        self._waiters: list = []
+
+    async def wait(self, seen: int, timeout: float | None) -> bool:
+        """True — `fired` уже не `seen`; False — истёк `timeout` или `close`."""
         import asyncio
 
-        if self._error is not None:
-            error, self._error = self._error, None
-            raise error
-        self._on_readable(raise_errors=True)  # снимок уже в сокете, а приём цикла до него ещё не дошёл
-        deadline = None if timeout is None else self.loop.time() + timeout
-        seen = self._seen  # своё у каждого вызова: ждущих одного снимка будят все
-        while self._gen == seen:
-            if self.stopped:
+        deadline = None if timeout is None else self._loop.time() + timeout
+        while self.fired == seen:
+            if self.closed:
                 return False
-            left = None if deadline is None else deadline - self.loop.time()
+            left = None if deadline is None else deadline - self._loop.time()
             if left is not None and left <= 0:
                 return False
-            waiter = self.loop.create_future()
+            waiter = self._loop.create_future()
             self._waiters.append(waiter)
             try:
                 await asyncio.wait_for(waiter, left)
@@ -247,29 +245,21 @@ class _LoopReceiver:
             finally:
                 if waiter in self._waiters:
                     self._waiters.remove(waiter)
-        self._seen = self._gen
         return True
 
-    def stop(self) -> None:
-        """Снять сокет с цикла; ждущие `wait` получают False."""
-        if self.stopped:
-            return
-        self.stopped = True
-        self.callback = None
-        if self._task is not None:
-            self._task.cancel()
-        else:  # по запомненному дескриптору: сокет могли закрыть снаружи
-            self.loop.remove_reader(self._fd)
+    def fire(self) -> None:
+        self.fired += 1
         self._wake()
-        if self._error is not None:
-            self._report("ошибка приёма снимка", self._error)
-            self._error = None
 
-    def _report(self, message: str, exc: Exception) -> None:
-        self.loop.call_exception_handler({"message": f"shmobj.channel: {message}", "exception": exc})
+    def fail(self, error: Exception) -> bool:
+        """Поднять `error` в ждущих; False — ждущих не было."""
+        return self._wake(error)
+
+    def close(self) -> None:
+        self.closed = True
+        self._wake()
 
     def _wake(self, error: Exception | None = None) -> bool:
-        """Разбудить ждущих `wait` (с ошибкой — поднять её в них); False — ждущих не было."""
         waiters, self._waiters = [w for w in self._waiters if not w.done()], []
         for waiter in waiters:
             if error is None:
@@ -278,37 +268,68 @@ class _LoopReceiver:
                 waiter.set_exception(error)
         return bool(waiters)
 
+
+class _LoopReceiver:
+    """Приём снимков читателя в цикле asyncio, от `attach` или первого `wait_async` до `detach`: сокет читает
+    только он, новый снимок будит всех ждущих `wait` и вызывает `callback`.
+
+    Ошибку приёма получают ждущие `wait`; без них — следующий `wait`, если колбэка нет, иначе обработчик
+    исключений цикла. Ему же уходит ошибка, которую до `stop` никто не забрал.
+    """
+
+    def __init__(self, sub: "_Subscriber", loop, callback: Callable[[Any], None] | None) -> None:
+        self.loop = loop
+        self.callback = callback
+        self._sub = sub
+        self._snapshots = _Broadcast(loop)
+        self._seen = 0  # снимков, отданных wait
+        self._error: Exception | None = None  # для следующего wait
+        self._unwatch = _watch_readable(loop, sub._sock, self._on_readable)
+
+    async def wait(self, timeout: float | None) -> bool:
+        if self._error is not None:
+            error, self._error = self._error, None
+            raise error
+        self._on_readable(raise_errors=True)  # снимок уже в сокете, а приём цикла до него ещё не дошёл
+        if not await self._snapshots.wait(self._seen, timeout):
+            return False
+        self._seen = self._snapshots.fired
+        return True
+
+    def stop(self) -> None:
+        """Снять сокет с цикла; ждущие `wait` получают False."""
+        if self._snapshots.closed:
+            return
+        self._unwatch()
+        self._snapshots.close()
+        if self._error is not None:
+            self._report("ошибка приёма снимка", self._error)
+            self._error = None
+
+    def _report(self, message: str, exc: Exception) -> None:
+        self.loop.call_exception_handler({"message": f"shmobj.channel: {message}", "exception": exc})
+
     def _on_readable(self, raise_errors: bool = False) -> None:
-        """Новый снимок будит ждущих `wait`, затем вызывает колбэк; конец канала закрывает читателя."""
         try:
-            changed = self._sub.receive()
+            changed = self._sub.receive()  # конец канала закрывает читателя, а с ним и этот приём
         except Exception as exc:
             if raise_errors:
                 raise
-            if self._wake(exc):
+            if self._snapshots.fail(exc):
                 pass
-            elif self.attached:
-                self._report("ошибка приёма снимка", exc)
-            else:
+            elif self.callback is None:
                 self._error = exc
+            else:
+                self._report("ошибка приёма снимка", exc)
             return
         if not changed:
             return
-        self._gen += 1
-        self._wake()
+        self._snapshots.fire()
         if self.callback is not None:
             try:
                 self.callback(self._sub.latest)
             except Exception as exc:
                 self._report("ошибка в колбэке", exc)
-
-    async def _wait_readable(self) -> None:
-        while not self.stopped:
-            try:
-                await self.loop.sock_recv(self._sub._sock, 0)  # IOCP: завершается, когда есть данные или конец
-            except OSError:
-                pass  # конец канала или закрытый сокет разберёт receive()
-            self._on_readable()
 
 
 class _Subscriber(_End):
@@ -361,7 +382,7 @@ class _Subscriber(_End):
         if self._receiver is None:
             if self.closed:
                 return False
-            self._receiver = _LoopReceiver(self, loop, None, attached=False)
+            self._receiver = _LoopReceiver(self, loop, None)
         elif self._receiver.loop is not loop:
             raise ValueError("shmobj.channel: читатель принимает в другом цикле asyncio")
         return await self._receiver.wait(timeout)
@@ -369,8 +390,8 @@ class _Subscriber(_End):
     def attach(self, callback: Callable[[Any], None] | None = None, *, loop=None) -> None:
         """Принимать снимки в цикле asyncio (`loop` — по умолчанию текущий): `callback(latest)` на каждый новый.
 
-        Ошибку `receive` получают ждущие `wait_async`, без них она уходит в обработчик исключений цикла, как и
-        ошибки `callback`; приём продолжается.
+        Ошибку `receive` получают ждущие `wait_async`; без них при `callback` — обработчик исключений цикла (как и
+        ошибки `callback`), без `callback` — следующий `wait_async`. Приём продолжается.
         """
         if loop is None:
             import asyncio
@@ -379,10 +400,9 @@ class _Subscriber(_End):
         receiver = self._receiver
         if receiver is not None and receiver.loop is loop:
             receiver.callback = callback  # ждущие wait_async ждут дальше
-            receiver.attached = True
         else:
             self.detach()
-            self._receiver = _LoopReceiver(self, loop, callback, attached=True)
+            self._receiver = _LoopReceiver(self, loop, callback)
 
     def detach(self) -> None:
         """Снять сокет с цикла asyncio; сокет остаётся открытым, ждущие `wait_async` получают False."""
