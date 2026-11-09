@@ -8,8 +8,9 @@
 shmobj/__init__.py       # Python-обёртка: реэкспорт, create/attach
 shmobj/_shm.py           # SharedMemory, resource_tracker
 shmobj/channel.py        # канал снимков (Linux, Windows)
+shmobj/latest.py         # последний снимок по имени (любая ОС)
 shmobj/_core.abi3.so     # скомпилированные shmobj-core + shmobj-py (на Windows — _core.pyd)
-shmobj/__init__.pyi, channel.pyi, py.typed   # типы и докстринги для IDE
+shmobj/__init__.pyi, channel.pyi, latest.pyi, py.typed   # типы и докстринги для IDE
 pydevd_plugins/extensions/pydevd_plugin_shmobj.py   # содержимое прокси в отладчике PyCharm/VS Code
 ```
 
@@ -168,6 +169,32 @@ sub.attach()                                           # в цикле asyncio; 
 | `channel_async.py` | asyncio: `asyncio.create_subprocess_exec(..., **spawn_kwargs(...))`, `attach(callback)`, ожидание `asyncio.Event` |
 | `channel_fanout.py` | Один писатель и три читателя-процесса: `listen` → `Publisher.accept_in_thread`, читатели — `connect` |
 | `writer.py` | Писатель для обоих: `publish` в цикле с `time.sleep` или из корутины (`--async`); выход по `BrokenPipeError`, когда читатель закрыл канал |
+
+### Последний снимок по имени (любая ОС)
+
+Писатель кладёт снимок, читатель забирает последний, когда нужен: без сокетов и наследования
+дескрипторов, процессы запускаются в любом порядке, перезапуск писателя читателям не мешает.
+
+```python
+from shmobj import latest
+
+# писатель
+w = latest.Writer("metrics")
+w.put({"vms": {101: {"cpu": 0.5}}})       # прежний снимок удаляется
+
+# читатель, в любом процессе
+r = latest.Reader("metrics")
+root = r.get()                            # None — снимков ещё не было
+if root is not prev: ...                  # пока снимок тот же, get() возвращает тот же объект
+```
+
+- Новый снимок читатель узнаёт только опросом `get()`: стоимость проверки — чтение 40 байт.
+- `w.close()` и выход интерпретатора удаляют имена писателя; читатели дочитывают открытое, `get()`
+  возвращает последний принятый корень.
+- После падения писателя на Linux и macOS в `/dev/shm` остаются `<name>` и последний снимок
+  `<name>.<gen>`; следующий `Writer` с тем же именем подхватывает их и удаляет. Windows — ничего не
+  остаётся.
+- Нужны уведомление о снимке, печати и гарантия «после падения ничего нет» — канал (выше).
 
 ### Отладчик
 
