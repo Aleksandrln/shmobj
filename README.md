@@ -66,10 +66,11 @@ with shmobj.attach(segment_name) as segment:
     print(users[0].get_many(["id", "name"]))
     total = sum(user["score"] for user in users.iter_values())
 ```
-То же самое с обвязкой:
+
+То же самое с обвязкой `multiprocessing` ([shared_pool.py](examples/shared_pool.py)):
+
 ```python
 import multiprocessing
-
 import shmobj
 
 
@@ -90,25 +91,10 @@ if __name__ == "__main__":
             print(sum(pool.map(score, range(len(data["users"])), chunksize=10_000)))
 ```
 
-
 ### Последний снимок по имени
 
-```python
-from shmobj import latest
-
-# писатель
-writer = latest.Writer("metrics")
-writer.put({"vms": {101: {"cpu": 0.5}}})  # прежний снимок удаляется
-
-# читатель, в любом процессе
-reader = latest.Reader("metrics")
-root = reader.get()  # None — снимков ещё не было; тот же объект, пока снимок не сменился
-```
-
-
-
-`shmobj.latest` — без сокетов: писатель кладёт снимок под именем, читатель забирает последний, когда нужен. Процессы
-запускаются в любом порядке, перезапуск писателя читателям не мешает. Linux, Windows и macOS.
+`shmobj.latest` — без сокетов: писатель кладёт снимок под именем, читатель забирает последний, когда нужен.
+Процессызапускаются в любом порядке, перезапуск писателя читателям не мешает.
 
 ```python
 from shmobj import latest
@@ -121,14 +107,80 @@ writer.put({"vms": {101: {"cpu": 0.5}}})  # прежний снимок удал
 reader = latest.Reader("metrics")
 root = reader.get()  # None — снимков ещё не было; тот же объект, пока снимок не сменился
 ```
+
+Еще примеры: [latest_pubsub.py](examples/latest_pubsub.py)
 
 О новом снимке читатель узнаёт только опросом `get()`. После падения писателя на Linux и macOS имена остаются в
-`/dev/shm` до следующего писателя с тем же именем — [doc/usage.md](doc/usage.md#последний-снимок-по-имени).
+`/dev/shm` до перезапуска контейнера или следующего писателя с тем же именем.
 
-Владелец создаёт сегмент и передаёт его имя другим процессам ([shared_pool.py](examples/shared_pool.py)).
-Например, через `multiprocessing`
+### Pub/Sub
+
+`shmobj.channel` — один писатель и сколько угодно читателей. Снимок собирается один раз на всех, по сокету идёт только
+ссылка на него.
+Подключившийся читатель сразу получает последний снимок, промежуточные пропускаются.
+После завершения процессов в ОС ничего не остаётся (даже `/dev/shm` имен).
+
+Адрес постоянный: к перезапущенному писателю читатели подключаются по нему же.
+На Linux абстрактный адрес `"\0имя"` — не файл, ядро освобождает его вместе с писателем; на Windows — TCP на loopback.
+
+#### Синхронно
+
+```python
+import itertools
+import sys
+import time
+
+from shmobj import channel
+
+ADDRESS = ("127.0.0.1", 50555) if sys.platform == "win32" else "\0shmobj-example"
+
+# Писатель
+
+with channel.Publisher() as pub:
+    pub.accept_in_thread(channel.listen(ADDRESS))  # подписчиков принимает фоновый поток
+    for tick in itertools.count():
+        pub.publish({"tick": tick, "vms": {101: {"cpu": tick % 100}}})  # не блокирует
+        time.sleep(1)
+
+# Читатель:
+while True:
+    # ждать, пока писатель не начнёт слушать адрес; wait_writer=30 — не дольше 30 секунд
+    with channel.Subscriber(channel.connect(ADDRESS, wait_writer=True)) as sub:
+        while sub.wait():  # True — пришёл снимок, False — писатель закрылся или упал
+            print(sub.latest["vms"][101]["cpu"])  # FrozenDict поверх общей памяти
+```
+
+Примеры: [channel_pubsub.py](examples/channel_pubsub.py)
+
+#### asyncio версия
+
+```python
+
+# Писатель
+async def main():
+    with channel.Publisher() as pub:
+        pub.accept_in_loop(channel.listen(ADDRESS))  # подписчиков принимает цикл, без потока
+        for tick in itertools.count():
+            pub.publish({"tick": tick, "vms": {101: {"cpu": tick % 100}}})
+            await asyncio.sleep(1)
 
 
+# Читатель:
+async def main():
+    while True:
+        sock = await channel.connect_async(ADDRESS, wait_writer=True)  # ожидание не блокирует цикл
+        with channel.Subscriber(sock) as sub:
+            while await sub.wait_async():
+                print(sub.latest["vms"][101]["cpu"])
+```
+
+Примеры: [channel_pubsub_async.py](examples/channel_pubsub_async.py)
+
+Вместо цикла ожидания — колбэк на каждый снимок: `sub.attach(callback)`, а в обработчике запроса — `sub.latest`
+(воркеры Uvicorn). Писатели и читатели взаимозаменяемы: к синхронному писателю подключается и asyncio-читатель.
+
+Канал без адреса (пара сокетов, писатель — дочерний процесс), несколько читателей, очередь и ограничения
+абстрактного адреса — [doc/usage.md](doc/usage.md#канал-снимков).
 
 ### Файл и bytes
 
@@ -145,101 +197,6 @@ with open("data.shmobj", "wb") as file:  # один раз
 with open("data.shmobj", "rb") as file:  # в каждом процессе: страницы файла из кеша ОС — одна копия на всех
     root = shmobj.loads(mmap.mmap(file.fileno(), 0, access=mmap.ACCESS_READ))
 ```
-
-### Pub/Sub
-
-Данные только для чтения: чтобы их обновить, писатель публикует новый снимок целиком. `shmobj.channel` — один
-писатель и сколько угодно читателей. Снимок собирается один раз на всех, по сокету идёт только ссылка на него.
-Подключившийся читатель сразу получает последний снимок, отставшему промежуточные пропускаются. После падения любой
-стороны в ОС ничего не остаётся. Linux и Windows.
-
-Адрес постоянный: к перезапущенному писателю читатели подключаются по нему же.
-На Linux абстрактный адрес `"\0имя"` — не файл, ядро освобождает его вместе с писателем; на Windows — TCP на loopback.
-
-#### Без asyncio
-
-Писатель и читатель — [channel_pubsub.py](examples/channel_pubsub.py) (`writer` / `reader`).
-
-Писатель:
-
-```python
-import itertools
-import sys
-import time
-
-from shmobj import channel
-
-ADDRESS = ("127.0.0.1", 50555) if sys.platform == "win32" else "\0shmobj-example"
-
-with channel.Publisher() as pub:
-    pub.accept_in_thread(channel.listen(ADDRESS))  # подписчиков принимает фоновый поток
-    for tick in itertools.count():
-        pub.publish({"tick": tick, "vms": {101: {"cpu": tick % 100}}})  # не блокирует
-        time.sleep(1)
-```
-
-Читатель:
-
-```python
-while True:
-    # ждать, пока писатель не начнёт слушать адрес; wait_writer=30 — не дольше 30 секунд
-    with channel.Subscriber(channel.connect(ADDRESS, wait_writer=True)) as sub:
-        while sub.wait():  # True — пришёл снимок, False — писатель закрылся или упал
-            print(sub.latest["vms"][101]["cpu"])  # FrozenDict поверх общей памяти
-```
-
-#### asyncio
-
-Импорты и `ADDRESS` — как выше, плюс `import asyncio`;
-скрипт — [channel_pubsub_async.py](examples/channel_pubsub_async.py).
-
-Писатель:
-
-```python
-async def main():
-    with channel.Publisher() as pub:
-        pub.accept_in_loop(channel.listen(ADDRESS))  # подписчиков принимает цикл, без потока
-        for tick in itertools.count():
-            pub.publish({"tick": tick, "vms": {101: {"cpu": tick % 100}}})
-            await asyncio.sleep(1)
-```
-
-Читатель:
-
-```python
-async def main():
-    while True:
-        sock = await channel.connect_async(ADDRESS, wait_writer=True)  # ожидание не блокирует цикл
-        with channel.Subscriber(sock) as sub:
-            while await sub.wait_async():
-                print(sub.latest["vms"][101]["cpu"])
-```
-
-Вместо цикла ожидания — колбэк на каждый снимок: `sub.attach(callback)`, а в обработчике запроса — `sub.latest`
-(воркеры Uvicorn). Писатели и читатели взаимозаменяемы: к синхронному писателю подключается и asyncio-читатель.
-
-Канал без адреса (пара сокетов, писатель — дочерний процесс), несколько читателей, очередь и ограничения
-абстрактного адреса — [doc/usage.md](doc/usage.md#канал-снимков).
-
-### Последний снимок по имени
-
-`shmobj.latest` — без сокетов: писатель кладёт снимок под именем, читатель забирает последний, когда нужен. Процессы
-запускаются в любом порядке, перезапуск писателя читателям не мешает. Linux, Windows и macOS.
-
-```python
-from shmobj import latest
-
-# писатель
-writer = latest.Writer("metrics")
-writer.put({"vms": {101: {"cpu": 0.5}}})  # прежний снимок удаляется
-
-# читатель, в любом процессе
-reader = latest.Reader("metrics")
-root = reader.get()  # None — снимков ещё не было; тот же объект, пока снимок не сменился
-```
-
-О новом снимке читатель узнаёт только опросом `get()`. После падения писателя на Linux и macOS имена остаются в
-`/dev/shm` до следующего писателя с тем же именем — [doc/usage.md](doc/usage.md#последний-снимок-по-имени).
 
 ## Жизненный цикл сегмента
 
