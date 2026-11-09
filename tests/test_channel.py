@@ -566,9 +566,13 @@ def test_accept_in_loop(mode, tmp_path):
             assert [await asyncio.wait_for(got.get(), 5) for _ in subs] == [2, 2]
             fd = listener.fileno()
         assert listener.fileno() == -1
-        assert not loop.remove_reader(fd)  # приём снят с цикла
         for sub in subs:
             sub.close()
+        try:
+            assert not loop.remove_reader(fd)  # приём снят с цикла
+        except NotImplementedError:  # ProactorEventLoop (Windows): приём — задача, она отменена
+            others = asyncio.all_tasks() - {asyncio.current_task()}
+            assert not others or not (await asyncio.wait(others, timeout=5))[1]
 
     asyncio.run(main())
 

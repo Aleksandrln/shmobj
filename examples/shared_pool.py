@@ -27,5 +27,7 @@ if __name__ == "__main__":
         print(f"создатель: сегмент {segment.name}, {segment.size} байт")
         with multiprocessing.Pool(4, initializer=init, initargs=(segment.name,)) as pool:
             total = sum(pool.map(score, range(len(data["users"])), chunksize=10_000))
+            pool.close()  # выход из with — terminate(): воркер, не закончивший init, был бы убит
+            pool.join()
         print(f"сумма score: {total}")
     print("создатель: сегмент закрыт и удалён")
