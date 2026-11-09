@@ -1,6 +1,6 @@
 """Канал снимков в asyncio: `Subscriber.attach(callback)` вызывает колбэк на каждый новый снимок.
 
-Писатель — дочерний процесс `writer.py --async`. Цикл не блокируется: приём идёт через
+Писатель — дочерний процесс `channel_spawn_writer.py --async`. Цикл не блокируется: приём идёт через
 `loop.add_reader` (на Windows, в ProactorEventLoop, — через задачу с `sock_recv`).
 Получив снимок TICKS, читатель закрывает канал, и писатель выходит.
 """
@@ -10,7 +10,7 @@ from pathlib import Path
 
 from shmobj import channel
 
-WRITER = Path(__file__).with_name("writer.py")
+WRITER = Path(__file__).with_name("channel_spawn_writer.py")
 TICKS = 20
 
 

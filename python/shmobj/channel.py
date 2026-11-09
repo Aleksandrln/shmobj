@@ -233,6 +233,44 @@ class _Subscriber(_End):
             self._selector.select(left)  # спит в ядре, пока не придёт снимок или конец канала
         return True
 
+    async def _readable(self, loop) -> None:
+        """Дождаться готовности сокета к чтению (данные или конец канала)."""
+        fd = self._sock.fileno()
+        ready = loop.create_future()
+        try:
+            loop.add_reader(fd, lambda: ready.done() or ready.set_result(None))
+        except NotImplementedError:  # ProactorEventLoop (Windows) не умеет add_reader
+            try:
+                await loop.sock_recv(self._sock, 0)  # IOCP: завершается, когда есть данные или конец
+            except OSError:
+                pass  # конец канала или закрытый сокет разберёт receive()
+            return
+        try:
+            await ready
+        finally:
+            loop.remove_reader(fd)
+
+    async def wait_async(self, timeout: float | None = None) -> bool:
+        """`wait` для asyncio: ждать нового снимка, не блокируя цикл. True — `latest` сменился;
+        False — истёк `timeout` или канал закрыт (`closed`). Не вместе с `attach`."""
+        import asyncio
+
+        if self._reader is not None:
+            raise ValueError("shmobj.channel: читатель принимает в цикле asyncio (attach)")
+        loop = asyncio.get_running_loop()
+        deadline = None if timeout is None else loop.time() + timeout
+        while not self.receive():
+            if self.closed:
+                return False
+            left = None if deadline is None else deadline - loop.time()
+            if left is not None and left <= 0:
+                return False
+            try:
+                await asyncio.wait_for(self._readable(loop), left)
+            except TimeoutError:
+                pass  # срок проверит следующий проход, после последнего receive()
+        return True
+
     def detach(self) -> None:
         """Снять сокет с цикла asyncio; сокет остаётся открытым."""
         reader, self._reader = self._reader, None

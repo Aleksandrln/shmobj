@@ -1,6 +1,6 @@
 """Писатель канала снимков: отдаёт снимок каждые INTERVAL секунд, пока читатель не закроет канал.
 
-Запускают читатели `channel_sync.py` и `channel_async.py`: `writer.py <номер сокета> [--async]`.
+Запускают читатели `channel_spawn.py` и `channel_spawn_async.py`: `channel_spawn_writer.py <номер сокета> [--async]`.
 `publish` не блокирует, поэтому в asyncio вызывается прямо из корутины.
 """
 import asyncio

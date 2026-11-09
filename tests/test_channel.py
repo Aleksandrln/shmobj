@@ -422,6 +422,32 @@ def test_wait(ends):
 
 
 @needs_channel
+def test_wait_async(ends):
+    pub, sub = ends
+
+    async def main():
+        loop = asyncio.get_running_loop()
+        started = time.monotonic()
+        assert not await sub.wait_async(0.1)  # снимков нет — истёк срок
+        assert time.monotonic() - started >= 0.1
+        loop.call_later(0.1, pub.publish, {"n": 1})
+        assert await sub.wait_async(5) and sub.latest["n"] == 1  # цикл не заблокирован: call_later сработал
+        pub.publish({"n": 2})
+        pub.publish({"n": 3})
+        assert await sub.wait_async(0) and sub.latest["n"] == 3  # готовый снимок — последний из очереди
+        task = asyncio.create_task(sub.wait_async())
+        await asyncio.sleep(0.05)
+        task.cancel()
+        with pytest.raises(asyncio.CancelledError):
+            await task
+        loop.call_later(0.1, pub.close)
+        assert not await sub.wait_async() and sub.closed  # конец канала будит ожидание без срока
+        assert sub.latest["n"] == 3
+
+    asyncio.run(main())
+
+
+@needs_channel
 def test_wait_after_attach(ends):
     _pub, sub = ends
 
@@ -429,8 +455,11 @@ def test_wait_after_attach(ends):
         sub.attach()
         with pytest.raises(ValueError):
             sub.wait(0)
+        with pytest.raises(ValueError):
+            await sub.wait_async(0)
         sub.detach()
         assert not sub.wait(0)
+        assert not await sub.wait_async(0)
 
     asyncio.run(main())
 

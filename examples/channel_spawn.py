@@ -1,6 +1,6 @@
 """Канал снимков без asyncio: читатель ждёт снимки блокирующим `wait()`.
 
-Писатель — дочерний процесс `writer.py`. Читатель берёт только последний снимок, промежуточные
+Писатель — дочерний процесс `channel_spawn_writer.py`. Читатель берёт только последний снимок, промежуточные
 пропускаются. Получив снимок TICKS, читатель закрывает канал, и писатель выходит.
 """
 import subprocess
@@ -9,7 +9,7 @@ from pathlib import Path
 
 from shmobj import channel
 
-WRITER = Path(__file__).with_name("writer.py")
+WRITER = Path(__file__).with_name("channel_spawn_writer.py")
 TICKS = 20
 
 

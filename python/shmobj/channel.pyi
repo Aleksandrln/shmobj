@@ -94,6 +94,10 @@ class Subscriber:
         """Ждать нового снимка, блокируя поток (сон в `selectors`, без опроса): True — `latest` сменился;
         False — истёк `timeout` (None — без срока) или канал закрыт (`closed`). Исключения — как у
         `receive`. После `attach` (до `detach`) — `ValueError`."""
+    async def wait_async(self, timeout: float | None = None) -> bool:
+        """`wait` для asyncio: ждать нового снимка, не блокируя цикл (`loop.add_reader`; цикл без него —
+        `sock_recv(sock, 0)`). Результат и исключения — как у `wait`; отменяется вместе с задачей.
+        После `attach` (до `detach`) — `ValueError`."""
     def attach(self, callback: Callable[[Value], None] | None = None, *,
                loop: asyncio.AbstractEventLoop | None = None) -> None:
         """Принимать снимки в цикле asyncio (`loop` — по умолчанию текущий): `callback(latest)` на каждый новый.
