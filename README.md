@@ -57,14 +57,14 @@ pip install ./shmobj-<version>-cp311-abi3-<platform>.whl
 | Подписка на новые снимки без постоянного опроса | `shmobj.channel`        | [channel_pubsub.py](examples/channel_pubsub.py) |
 | Чтение данных из файла или `bytes`              | `dumps()` / `loads()`   | [file_mmap.py](examples/file_mmap.py)           |
 
-Все примеры находятся в каталоге [examples/](examples/README.md).
+Все примеры находятся в каталоге [examples](examples/README.md).  
+Внимание! Перед запуском примеров нужно [установить `shmobj`](##Установка).
 
 ### Общий набор данных
 
 `create()` создаёт сегмент и записывает в него структуру. Другие процессы подключаются к нему через `attach()`,
 используя имя сегмента.
-Создайте сегмент в процессе-писателе и передайте его имя процессам-читателям.  
-Сегмент должен оставаться открытым, пока читатели работают.
+Память освобождается, когда от сегмента отписывается последний читатель.
 
 ```python
 import shmobj
@@ -88,66 +88,74 @@ with shmobj.attach(segment.name) as segment:
     total = sum(user["score"] for user in users.iter_values())
 ```
 
-То же самое с обвязкой `multiprocessing` ([shared_pool.py](examples/shared_pool.py)):
 `FrozenDict` и `FrozenList` реализуют интерфейсы `Mapping` и `Sequence`, поэтому с ними можно работать как с привычными
 `dict` и `list`.
+
+То же самое с с `multiprocessing` ([shared_pool.py](examples/shared_pool.py)):
 
 ```python
 import multiprocessing
 import shmobj
 
 
-def init(name):
+def init(segment_name):
     global users
-    users = shmobj.attach(name).root["users"]  # прокси держит сегмент открытым, пока жив воркер
+    users = shmobj.attach(segment_name).root["users"]  # Прокси удерживает сегмент открытым, пока жив воркер.
 
 
-def score(i):
-    return users[i]["score"]
+def score(index):
+    return users[index]["score"]
 
 
 if __name__ == "__main__":
     data = {"users": [{"id": i, "score": i % 100} for i in range(100_000)]}
-    # unlink_on_close: выход из with удаляет сегмент из ОС, без него — только закрывает
+    # При выходе из with сегмент будет закрыт и удалён из ОС.
     with shmobj.create(data, unlink_on_close=True) as segment:
         with multiprocessing.Pool(4, initializer=init, initargs=(segment.name,)) as pool:
             print(sum(pool.map(score, range(len(data["users"])), chunksize=10_000)))
 ```
 
-### Последний снимок по имени
+### `shmobj.latest`
 
-`shmobj.latest` — без сокетов: писатель кладёт снимок под именем, читатель забирает последний, когда нужен.
-Процессы запускаются в любом порядке, перезапуск писателя читателям не мешает.
+`shmobj.latest` позволяет публиковать снимки под заданным именем.   
+Писатель заменяет предыдущий снимок новым, а читатель получает актуальную версию при вызове `get()`.
+Сокеты для этого не используются; процессы могут запускаться в любом порядке.
 
 ```python
 from shmobj import latest
 
-# писатель
+# Процесс-писатель
 writer = latest.Writer("metrics")
-writer.put({"vms": {101: {"cpu": 0.5}}})  # прежний снимок удаляется
+writer.put({"vms": {101: {"cpu": 0.5}}})
 
-# читатель, в любом процессе
+# Процесс-читатель
 reader = latest.Reader("metrics")
 root = reader.get()  # None — снимков ещё не было; тот же объект, пока снимок не сменился
 ```
 
-Пример: [latest_pubsub.py](examples/latest_pubsub.py)
+Пока снимок не изменился, `get()` возвращает тот же объект. Читатель узнаёт об обновлении только при очередном вызове
+`get()`.
 
-О новом снимке читатель узнаёт только опросом `get()`. После падения писателя на Linux и macOS имена остаются в ОС
-(на Linux — в `/dev/shm`) до перезагрузки, перезапуска контейнера или следующего писателя с тем же именем.
+Пример: [latest_pubsub.py](examples/latest_pubsub.py).
 
-### Pub/Sub
+**Очистка после аварийного завершения.** На Linux и macOS имена сегментов могут оставаться в ОС после падения писателя.
+На Linux они находятся в `/dev/shm`. Такие сегменты сохраняются до перезагрузки, перезапуска контейнера или следующего
+писателя, использующего то же имя.
 
-`shmobj.channel` — один писатель и сколько угодно читателей. Снимок собирается один раз на всех, по сокету идёт только
-ссылка на него.
-Подключившийся читатель сразу получает последний снимок, промежуточные пропускаются.
-После завершения процессов в ОС ничего не остаётся (даже имён в `/dev/shm`).
+### Pub/Sub: `shmobj.channel`
 
-Адрес постоянный: к перезапущенному писателю читатели подключаются по нему же.
-На Linux `"\0имя"` — адрес в абстрактном пространстве имён Unix-сокетов (abstract socket namespace): не файл, ядро
-освобождает его вместе с писателем. На Windows — TCP на loopback.
+Читатели узнают когда писатель обновил снимок.
+1 писатель -> n читателей.
 
-#### Синхронно
+- Новый подписчик сразу получает последний снимок.
+- Промежуточные снимки могут пропускаться: читатель получает актуальное состояние, а не очередь всех обновлений.
+- После завершения процессов ресурсы канала освобождаются ОС (ичего не остаётся даже имён в `/dev/shm`).
+- Адрес канала остаётся постоянным, поэтому читатели могут повторно подключаться после перезапуска писателя.
+
+На Linux адрес вида `"\0имя"` использует абстрактное пространство имён Unix-сокетов: это не файл, и ядро освобождает
+адрес вместе с писателем. На Windows используется TCP loopback.
+
+#### Синхронный API
 
 ```python
 import itertools
@@ -159,7 +167,6 @@ from shmobj import channel
 ADDRESS = ("127.0.0.1", 50555) if sys.platform == "win32" else "\0shmobj-example"
 
 # Писатель
-
 with channel.Publisher() as pub:
     pub.accept_in_thread(channel.listen(ADDRESS))  # подписчиков принимает фоновый поток
     for tick in itertools.count():
@@ -176,9 +183,16 @@ while True:
 
 Примеры: [channel_pubsub.py](examples/channel_pubsub.py)
 
-#### asyncio версия
+#### asyncio API
+
+Канал поддерживает асинхронные подключения и ожидание обновлений. Ожидание писателя не блокирует event loop.
 
 ```python
+import itertools
+import asyncio, sys
+from shmobj import channel
+
+ADDRESS = ("127.0.0.1", 50555) if sys.platform == "win32" else "\0shmobj-example"
 
 # Писатель
 async def main():
@@ -198,34 +212,36 @@ async def main():
                 print(sub.latest["vms"][101]["cpu"])
 
 
-# Читатель с колбэком: снимки принимает цикл, остальной код работает как обычно (воркер Uvicorn)
+# Читатель может зарегистрировать callback (Он будет вызываться в event loop при получении каждого нового
+# снимка)
 def on_snapshot(root):
     print(root["vms"][101]["cpu"])
-
 
 async def main():
     sock = await channel.connect_async(ADDRESS, wait_writer=True)
     with channel.Subscriber(sock) as sub:
         sub.attach(on_snapshot)  # on_snapshot(sub.latest) на каждый новый снимок
         while await sub.wait_async():  # работает и с колбэком; False — писатель закрылся или упал
-            ...  # своя работа; в обработчике запроса — sub.latest
+            pass
 ```
 
-Примеры: [channel_pubsub_async.py](examples/channel_pubsub_async.py)
+Пример: [channel_pubsub_async.py](examples/channel_pubsub_async.py).
 
-Писатели и читатели взаимозаменяемы: к синхронному писателю подключается и asyncio-читатель.
+Синхронные и асинхронные писатели и читатели совместимы: например, asyncio-читатель может подключиться к синхронному
+писателю.
 
-### Файл и bytes
+### Файл, `bytes` и `mmap`
 
-`dumps` даёт тот же формат, `loads` открывает его поверх `bytes`, `mmap` (отображение файла в память) или любого буфера
-без копирования:
+`dumps()` создаёт буфер в формате `shmobj`, а `loads()` открывает его без копирования поверх `bytes`, `mmap` или другого
+поддерживаемого буфера.
+При чтении одного файла из нескольких процессов страницы файла обслуживаются общим файловым кешем ОС.
 
 ```python
 import mmap
-
 import shmobj
 
-with open("data.shmobj", "wb") as file:  # один раз
+# Сохранение структуры в файл.
+with open("data.shmobj", "wb") as file:
     file.write(shmobj.dumps(data))
 
 with open("data.shmobj", "rb") as file:  # в каждом процессе: страницы файла из кеша ОС — одна копия на всех
@@ -234,51 +250,65 @@ with open("data.shmobj", "rb") as file:  # в каждом процессе: с�
 
 ## Жизненный цикл сегмента
 
-- `close()` закрывает сегмент в процессе, `unlink()` удаляет его имя из ОС. Выход из `with` вызывает `close()`, а
-  `unlink()` — только у `create(..., unlink_on_close=True)`.
-- Прокси держат сегмент открытым; после `close()` обращение к ним — `SegmentClosedError`.
-- Linux и macOS: сегмент — объект POSIX shared memory (на Linux — файл в `/dev/shm`, в RAM), живёт до `unlink()`.
-  Если убита вся группа процессов (остановка контейнера, OOM), он остаётся до перезагрузки (на Linux — или
-  `rm /dev/shm/<имя>`). Windows: сегмент исчезает с последним handle.
+- `close()` закрывает сегмент в текущем процессе.
+- `unlink()` удаляет имя сегмента из ОС. Выход из контекста `with` вызывает `close()`. Автоматический `unlink()`
+  выполняется только при создании сегмента с `unlink_on_close=True`.
+- Прокси-объекты удерживают сегмент открытым. После `close()` обращение к ним приводит к `SegmentClosedError`.
+- **Linux и macOS:** сегмент — объект POSIX shared memory. На Linux он представлен файлом в `/dev/shm` и хранится в RAM;
+  ресурс существует до `unlink()`.
+- **Windows:** сегмент удаляется после закрытия последнего handle.
 
-Подробно — [doc/usage.md](doc/usage.md#жизненный-цикл-сегмента).
+Если на Linux или macOS аварийно завершилась вся группа процессов, имя сегмента может остаться в ОС (До рестарта контейнера). 
+
+Подробнее: [Жизненный цикл сегмента](doc/usage.md#жизненный-цикл-сегмента).
 
 ## Ограничения
 
-- Только чтение: изменить опубликованные данные нельзя, публикуется новый снимок.
-- Типы: `dict`, `list`, `tuple` (читается как список), `None`, `bool`, `int` любой длины, `float`, `str`, `bytes`;
-  ключи — скаляры. Остальное — `TypeError` с путём до значения.
-- `shmobj.channel` — Linux и Windows; на macOS — `shmobj.latest`.
-- Повреждённые данные дают `FormatError` при обращении, без падения процесса; `validate()` проверяет весь буфер.
+- **Доступ только для чтения.** Опубликованные данные нельзя изменить на месте. 
+- Для обновления нужно опубликовать новый  снимок [[###Паб саб ]] либо latest.
+- **Поддерживаемые значения:** `dict`, `list`, `tuple` (при чтении представляется как список), `None`, `bool`, `int`
+  произвольной длины, `float`, `str` и `bytes`. Ключи словарей должны быть скалярными.
+- **Поддержка платформ:** `shmobj.channel` доступен на Linux и Windows; на macOS используйте `shmobj.latest`.
+- **Проверка формата:** повреждённые данные приводят к `FormatError` при обращении к ним. Метод `validate()` проверяет
+  весь буфер.
 
-## Почему не готовые решения
+## Почему не стандартные средства python
 
-- `multiprocessing.shared_memory` хранит байты: структуру туда кладут через `pickle`, и каждый читатель держит копию.
-- `Manager().dict()` — сервер с сокетом: каждое `d[key]` — запрос и `pickle`.
-- `fork` не спасает: обращение к объекту меняет счётчик ссылок, и страницы копируются в каждый процесс.
+- **`multiprocessing.shared_memory`.** Предоставляет разделяемый буфер байтов. Нет встроенной поддержки сложных python структур. 
+  Или есть ограниченная через `pickle`. А это значит затраты на сериализацию и полная копия в памяти каждого процесса.
+- **`multiprocessing.Manager().dict()`.** Данные обслуживаются отдельным процессом-сервером. Обращение к элементу
+  словаря требует IPC-запроса и сериализации.
+- **`fork`.** Сам по себе не гарантирует экономию памяти для Python-объектов: изменение счётчиков ссылок может приводить
+  к copy-on-write и копированию страниц между процессами.
 
-Подробно — [doc/comparison.md](doc/comparison.md).
+Подробнее: [Сравнение с альтернативами](doc/comparison.md).
 
 ## Документация
 
-- [doc/usage.md](doc/usage.md) — руководство: сегменты, файлы, проверка данных, канал, `latest`, отладчик.
-- [doc/api.md](doc/api.md) — справочник API.
-- [doc/build.md](doc/build.md) — устройство колеса и сборка.
-- [doc/format.md](doc/format.md), [doc/architecture.md](doc/architecture.md) — бинарный формат и устройство.
-- [doc/dev.md](doc/dev.md) — разработка, тесты, релиз; [doc/status.md](doc/status.md) — состояние и замеры.
+- [Руководство](doc/usage.md) — сегменты, файлы, проверка данных, `channel`, `latest` и отладчик.
+- [API Reference](doc/api.md) — описание публичного API.
+- [Сборка](doc/build.md) — устройство wheel и варианты сборки.
+- [Формат данных](doc/format.md) и [архитектура](doc/architecture.md) — бинарный формат и внутреннее устройство.
+- [Разработка](doc/dev.md) — тесты и выпуск релизов.
+- [Замеры и состояние проекта](doc/status.md).
 
 ## Сборка из исходников
 
-Нужен Rust stable ([rustup](https://rustup.rs)); колесо одно (abi3) на все версии CPython от 3.11:
+Для сборки требуется стабильная версия Rust ([rustup](https://rustup.rs)). Проект использует ABI3: одно колесо подходит
+для всех поддерживаемых версий CPython начиная с 3.11.
+
+Установить библиотеку из Git-репозитория:
 
 ```bash
 pip install git+https://github.com/Aleksandrln/shmobj
 ```
 
-Сборка колеса из клона и переносимые колёса — [doc/build.md](doc/build.md).
+Инструкции по сборке wheel из клона репозитория и созданию переносимых колёс: [doc/build.md](doc/build.md).
 
 ## Лицензия
 
-На выбор: [MIT](LICENSE-MIT) или [Apache-2.0](LICENSE-APACHE).
+Двойное лицензирование: на выбор [MIT](LICENSE-MIT) или [Apache-2.0](LICENSE-APACHE).
 
-Автор — [AleksandrLn](https://github.com/Aleksandrln), разработано совместно с [Claude](https://claude.ai) (Anthropic).
+## Авторство
+
+Проект создан [AleksandrLn](https://github.com/Aleksandrln) с помощью разработки от Anthropic [Claude](https://claude.ai).
