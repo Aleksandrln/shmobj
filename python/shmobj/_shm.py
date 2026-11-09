@@ -33,13 +33,42 @@ def _unlinker(shm: shared_memory.SharedMemory, *, tracked: bool):
     return unlink
 
 
-def create(obj, name: str | None, *, dedup: bool, checksum: bool) -> _core.Segment:
-    """Новая SharedMemory со сборкой `obj` (сразу в неё, без `bytes`); процесс-создатель — владелец сегмента."""
+def open_shm(name: str | None, *, create: bool = False, size: int = 0, track: bool = False) -> shared_memory.SharedMemory:
+    """SharedMemory; `track=False` — без регистрации в resource_tracker: выход процесса не удаляет имя."""
+    if track:
+        return shared_memory.SharedMemory(name=name, create=create, size=size)
+    if _TRACK_PARAM:
+        return shared_memory.SharedMemory(name=name, create=create, size=size, track=False)
+    shm = shared_memory.SharedMemory(name=name, create=create, size=size)
+    if _POSIX:
+        from multiprocessing import resource_tracker
+
+        resource_tracker.unregister(shm._name, "shared_memory")  # noqa: SLF001
+    return shm
+
+
+def unlink_name(name: str) -> None:
+    """Удалить имя неотслеживаемого сегмента; его нет — без ошибки. Windows — ничего: имени без handle нет."""
+    if not _POSIX:
+        return
+    import _posixshmem
+
+    try:
+        _posixshmem.shm_unlink("/" + name)
+    except FileNotFoundError:
+        pass
+
+
+def create(obj, name: str | None, *, dedup: bool, checksum: bool, track: bool = True) -> _core.Segment:
+    """Новая SharedMemory со сборкой `obj` (сразу в неё, без `bytes`); процесс-создатель — владелец сегмента.
+
+    `track=False` — имя переживает выход процесса, удаляет его `unlink()`.
+    """
     shm = None
 
     def alloc(size: int) -> memoryview:
         nonlocal shm
-        shm = shared_memory.SharedMemory(name=name, create=True, size=size)
+        shm = open_shm(name, create=True, size=size, track=track)
         return shm.buf
 
     try:
@@ -47,19 +76,12 @@ def create(obj, name: str | None, *, dedup: bool, checksum: bool) -> _core.Segme
     except BaseException:
         if shm is not None:
             shm.close()
-            shm.unlink()
+            _unlinker(shm, tracked=track)()
         raise
-    return _segment(shm, _unlinker(shm, tracked=True), verify=False)
+    return _segment(shm, _unlinker(shm, tracked=track), verify=False)
 
 
 def attach(name: str, verify: bool = False) -> _core.Segment:
     """Подключение без регистрации в resource_tracker: выход читателя не удаляет сегмент."""
-    if _TRACK_PARAM:
-        shm = shared_memory.SharedMemory(name=name, track=False)
-    else:
-        shm = shared_memory.SharedMemory(name=name)
-        if _POSIX:
-            from multiprocessing import resource_tracker
-
-            resource_tracker.unregister(shm._name, "shared_memory")  # noqa: SLF001
+    shm = open_shm(name)
     return _segment(shm, _unlinker(shm, tracked=False), verify=verify)

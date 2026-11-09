@@ -4,7 +4,7 @@ from __future__ import annotations
 from collections.abc import Mapping, Sequence
 from typing import Any
 
-from . import _shm, channel
+from . import _shm, channel, latest
 from ._core import (
     FORMAT_VERSION,
     FormatError,
@@ -33,6 +33,7 @@ __all__ = [
     "create",
     "dumps",
     "dumps_into",
+    "latest",
     "loads",
     "validate",
 ]

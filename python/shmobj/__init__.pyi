@@ -10,6 +10,7 @@ from typing import Any, Final, TypeAlias, TypeVar, overload
 from _typeshed import ReadableBuffer, WriteableBuffer
 
 from . import channel as channel
+from . import latest as latest
 
 FORMAT_VERSION: Final[int]  # 1
 
