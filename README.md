@@ -35,12 +35,12 @@ pip install ./shmobj-<версия>-cp311-abi3-<платформа>.whl
 
 ## Использование
 
-| Когда нужно                                                                 | Метод               | Пример                                                                                           |
-|-----------------------------------------------------------------------------|---------------------|--------------------------------------------------------------------------------------------------|
-| Один набор данных на все процессы                                           | `create` / `attach` | [shared_pool.py](examples/shared_pool.py)                                                        |
-| Набор в файле или в `bytes`                                                 | `dumps` / `loads`   | [file_mmap.py](examples/file_mmap.py)                                                            |
-| Писатель обновляет данные, читатели получают каждый снимок (Linux, Windows) | `shmobj.channel`    | [channel_writer.py](examples/channel_writer.py), [channel_reader.py](examples/channel_reader.py) |
-| Независимые процессы берут последний снимок по имени (любая ОС)             | `shmobj.latest`     | [latest_writer.py](examples/latest_writer.py), [latest_reader.py](examples/latest_reader.py)     |
+| Когда нужно                                                                 | Метод               | Пример                                            |
+|-----------------------------------------------------------------------------|---------------------|---------------------------------------------------|
+| Один набор данных на все процессы                                           | `create` / `attach` | [shared_pool.py](examples/shared_pool.py)         |
+| Набор в файле или в `bytes`                                                 | `dumps` / `loads`   | [file_mmap.py](examples/file_mmap.py)             |
+| Писатель обновляет данные, читатели получают каждый снимок (Linux, Windows) | `shmobj.channel`    | [channel_pubsub.py](examples/channel_pubsub.py)   |
+| Независимые процессы берут последний снимок по имени (любая ОС)             | `shmobj.latest`     | [latest_pubsub.py](examples/latest_pubsub.py)     |
 
 Все примеры — в [examples/](examples/README.md).
 
@@ -102,7 +102,9 @@ with open("data.shmobj", "rb") as file:  # в каждом процессе: с�
 
 #### Без asyncio
 
-Писатель ([channel_writer.py](examples/channel_writer.py)):
+Писатель и читатель — [channel_pubsub.py](examples/channel_pubsub.py) (`writer` / `reader`).
+
+Писатель:
 
 ```python
 import itertools
@@ -120,7 +122,7 @@ with channel.Publisher() as pub:
         time.sleep(1)
 ```
 
-Читатель ([channel_reader.py](examples/channel_reader.py)):
+Читатель:
 
 ```python
 while True:
@@ -132,7 +134,9 @@ while True:
 
 #### asyncio
 
-Импорты и `ADDRESS` — как выше, плюс `import asyncio`. Писатель ([channel_writer_async.py](examples/channel_writer_async.py)):
+Импорты и `ADDRESS` — как выше, плюс `import asyncio`; скрипт — [channel_pubsub_async.py](examples/channel_pubsub_async.py).
+
+Писатель:
 
 ```python
 async def main():
@@ -143,7 +147,7 @@ async def main():
             await asyncio.sleep(1)
 ```
 
-Читатель ([channel_reader_async.py](examples/channel_reader_async.py)):
+Читатель:
 
 ```python
 async def main():

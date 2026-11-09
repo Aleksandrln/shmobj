@@ -1,23 +1,41 @@
-"""Канал снимков без asyncio: читатель ждёт снимки блокирующим `wait()`.
+"""Канал снимков без адреса и без asyncio: читатель запускает писателя и передаёт ему конец `socketpair()`.
 
-Писатель — дочерний процесс `channel_spawn_writer.py`. Читатель берёт только последний снимок, промежуточные
-пропускаются. Получив снимок TICKS, читатель закрывает канал, и писатель выходит.
+Писатель — дочерний процесс этого же скрипта с `--writer <номер сокета>`. Читатель ждёт снимки блокирующим `wait()`
+и берёт только последний, промежуточные пропускаются. Получив снимок TICKS, читатель закрывает канал, и писатель
+выходит.
 """
+import itertools
+import socket
 import subprocess
 import sys
-from pathlib import Path
+import time
 
 from shmobj import channel
 
-WRITER = Path(__file__).with_name("channel_spawn_writer.py")
 TICKS = 20
+INTERVAL = 0.05
 
 
-def main() -> None:
+def snapshot(tick: int) -> dict:
+    return {"tick": tick, "vms": {vm: {"cpu": (vm * tick) % 100 / 100} for vm in range(100, 110)}}
+
+
+def writer(fileno: int) -> None:
+    # Windows: снимок, не подтверждённый читателем до выхода писателя, теряется
+    with channel.Publisher(socket.socket(fileno=fileno)) as pub:
+        for tick in itertools.count():
+            try:
+                pub.publish(snapshot(tick))  # False — читатель отстал, снимок пропущен
+            except BrokenPipeError:
+                return  # читатель закрыл канал
+            time.sleep(INTERVAL)
+
+
+def reader() -> None:
     pub_end, sub_end = channel.socketpair()
     with pub_end:  # копия у дочернего процесса; без закрытия здесь конец канала не дойдёт до читателя
-        writer = subprocess.Popen([sys.executable, str(WRITER), str(pub_end.fileno())],
-                                  **channel.spawn_kwargs(pub_end))
+        proc = subprocess.Popen([sys.executable, __file__, "--writer", str(pub_end.fileno())],
+                                **channel.spawn_kwargs(pub_end))
 
     with channel.Subscriber(sub_end) as sub:
         # True — пришёл новый снимок; False — писатель вышел, канал закрылся сам.
@@ -27,10 +45,13 @@ def main() -> None:
             print(f"tick={root['tick']} cpu[101]={root['vms'][101]['cpu']}")
             if root["tick"] >= TICKS:
                 break
-    writer.wait(timeout=10)
+    proc.wait(timeout=10)
 
     print(f"последний: tick={sub.latest['tick']}")  # `latest` переживает закрытие канала
 
 
 if __name__ == "__main__":
-    main()
+    if sys.argv[1:2] == ["--writer"]:
+        writer(int(sys.argv[2]))
+    else:
+        reader()

@@ -50,8 +50,8 @@ def test_channel_fanout_example():
 class _Process:
     """Пример, который работает до остановки; строки вывода — из очереди с ожиданием."""
 
-    def __init__(self, script):
-        self.proc = subprocess.Popen([sys.executable, str(EXAMPLES / script)], stdout=subprocess.PIPE,
+    def __init__(self, script, role):
+        self.proc = subprocess.Popen([sys.executable, str(EXAMPLES / script), role], stdout=subprocess.PIPE,
                                      stderr=subprocess.PIPE, encoding="utf-8", env=ENV)
         self.lines = queue.Queue()
         threading.Thread(target=self._read, daemon=True).start()
@@ -83,7 +83,7 @@ class _Process:
 @pytest.fixture
 def processes():
     started = []
-    yield lambda script: started.append(_Process(script)) or started[-1]
+    yield lambda script, role: started.append(_Process(script, role)) or started[-1]
     for proc in started:
         proc.kill()
 
@@ -94,24 +94,24 @@ def _tick(line):
 
 
 @needs_channel
-@pytest.mark.parametrize("writer, reader", [("channel_writer.py", "channel_reader.py"),
-                                            ("channel_writer_async.py", "channel_reader_async.py"),
-                                            ("channel_writer.py", "channel_reader_async.py")])
+@pytest.mark.parametrize("writer, reader", [("channel_pubsub.py", "channel_pubsub.py"),
+                                            ("channel_pubsub_async.py", "channel_pubsub_async.py"),
+                                            ("channel_pubsub.py", "channel_pubsub_async.py")])
 def test_channel_reader_reconnects(processes, writer, reader):
-    sub = processes(reader)  # писателя ещё нет — читатель ждёт
-    pub = processes(writer)
+    sub = processes(reader, "reader")  # писателя ещё нет — читатель ждёт
+    pub = processes(writer, "writer")
     assert _tick(sub.line()) == 0 and _tick(sub.line()) == 1
     pub.kill()  # падение писателя
     assert sub.line() == "писатель ушёл, жду нового"
-    processes(writer)  # новый писатель на том же адресе
+    processes(writer, "writer")  # новый писатель на том же адресе
     assert _tick(sub.line()) == 0
 
 
 def test_latest_example(processes):
-    sub = processes("latest_reader.py")
-    pub = processes("latest_writer.py")
+    sub = processes("latest_pubsub.py", "reader")
+    pub = processes("latest_pubsub.py", "writer")
     assert _tick(sub.line()) == 0 and _tick(sub.line()) == 1  # опрос чаще снимков — видны все
     pub.interrupt()  # имена писателя удалены; читатель держит последний снимок и ждёт
-    pub = processes("latest_writer.py")
+    pub = processes("latest_pubsub.py", "writer")
     assert _tick(sub.line()) == 0  # новый писатель нумерует с начала
     pub.interrupt()

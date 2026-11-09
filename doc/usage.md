@@ -119,8 +119,8 @@ with shmobj.attach(name) as seg:
 | Несколько сокетов в одном потоке | `sub.fileno()` в своём `selectors`, затем `sub.receive()` без ожидания |
 
 `Subscriber` не переподключается сам: после ухода писателя читатель подключается заново
-([examples/channel_reader.py](../examples/channel_reader.py),
-[examples/channel_reader_async.py](../examples/channel_reader_async.py)).
+([examples/channel_pubsub.py](../examples/channel_pubsub.py),
+[examples/channel_pubsub_async.py](../examples/channel_pubsub_async.py)).
 
 **Адрес.**
 
@@ -156,8 +156,7 @@ with shmobj.attach(name) as seg:
 ### Последний снимок по имени
 
 Писатель кладёт снимок под именем, читатель забирает последний, когда нужен. Процессы запускаются в любом порядке,
-перезапуск писателя читателям не мешает ([examples/latest_writer.py](../examples/latest_writer.py),
-[examples/latest_reader.py](../examples/latest_reader.py)).
+перезапуск писателя читателям не мешает ([examples/latest_pubsub.py](../examples/latest_pubsub.py)).
 
 - Снимки — именованные сегменты `<name>.<gen>`, номер текущего — в управляющем сегменте `<name>`. О новом снимке
   читатель узнаёт опросом `get()`: проверка — чтение 40 байт; пока снимок тот же, `get()` возвращает тот же объект.
