@@ -13,7 +13,7 @@
 | `shmobj.latest` | `Writer.put`/`Reader.get` по имени, любая ОС; уборка имён в `close()` и при выходе, подхват после падения писателя |
 | Отладчик | Плагин pydevd в колесе |
 
-Проверено на Linux (Python 3.11–3.13) и Windows.
+Проверено на Linux (Python 3.11–3.13) и Windows. macOS не проверялась.
 
 ## Нет
 
