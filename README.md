@@ -172,12 +172,23 @@ async def main():
         with channel.Subscriber(sock) as sub:
             while await sub.wait_async():
                 print(sub.latest["vms"][101]["cpu"])
+
+
+# Читатель с колбэком: снимки принимает цикл, остальной код работает как обычно (воркер Uvicorn)
+def on_snapshot(root):
+    print(root["vms"][101]["cpu"])
+
+
+async def main():
+    sock = await channel.connect_async(ADDRESS, wait_writer=True)
+    with channel.Subscriber(sock) as sub:
+        sub.attach(on_snapshot)  # on_snapshot(sub.latest) на каждый новый снимок
+        ...  # в обработчике запроса — sub.latest
 ```
 
 Примеры: [channel_pubsub_async.py](examples/channel_pubsub_async.py)
 
-Вместо цикла ожидания — колбэк на каждый снимок: `sub.attach(callback)`, а в обработчике запроса — `sub.latest`
-(воркеры Uvicorn). Писатели и читатели взаимозаменяемы: к синхронному писателю подключается и asyncio-читатель.
+Писатели и читатели взаимозаменяемы: к синхронному писателю подключается и asyncio-читатель.
 
 Канал без адреса (пара сокетов, писатель — дочерний процесс), несколько читателей, очередь и ограничения
 абстрактного адреса — [doc/usage.md](doc/usage.md#канал-снимков).
