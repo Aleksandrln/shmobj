@@ -183,7 +183,9 @@ async def main():
     sock = await channel.connect_async(ADDRESS, wait_writer=True)
     with channel.Subscriber(sock) as sub:
         sub.attach(on_snapshot)  # on_snapshot(sub.latest) на каждый новый снимок
-        ...  # в обработчике запроса — sub.latest
+        # своя работа, в обработчике запроса — sub.latest; wait_async() вместе с attach нельзя
+        while not sub.closed:  # True — писатель закрылся или упал, как False у wait_async()
+            await asyncio.sleep(1)
 ```
 
 Примеры: [channel_pubsub_async.py](examples/channel_pubsub_async.py)
