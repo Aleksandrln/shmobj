@@ -27,7 +27,8 @@
 ## Установка
 
 Колесо под свою платформу (CPython 3.11+; Linux x86_64 и aarch64, Windows x64, macOS arm64) — со страницы
-[релизов](https://github.com/Aleksandrln/shmobj/releases); остальные — [из исходников](#сборка-из-исходников).
+[релизов](https://github.com/Aleksandrln/shmobj/releases);
+Можно собрать [из исходников](#сборка-из-исходников).
 
 ```bash
 pip install ./shmobj-<версия>-cp311-abi3-<платформа>.whl
@@ -35,20 +36,37 @@ pip install ./shmobj-<версия>-cp311-abi3-<платформа>.whl
 
 ## Использование
 
-| Когда нужно                                                                 | Метод               | Пример                                            |
-|-----------------------------------------------------------------------------|---------------------|---------------------------------------------------|
-| Один набор данных на все процессы                                           | `create` / `attach` | [shared_pool.py](examples/shared_pool.py)         |
-| Набор в файле или в `bytes`                                                 | `dumps` / `loads`   | [file_mmap.py](examples/file_mmap.py)             |
-| Писатель обновляет данные, читатели получают каждый снимок (Linux, Windows) | `shmobj.channel`    | [channel_pubsub.py](examples/channel_pubsub.py)   |
-| Независимые процессы берут последний снимок по имени (любая ОС)             | `shmobj.latest`     | [latest_pubsub.py](examples/latest_pubsub.py)     |
+| Когда нужно                                                                 | Метод               | Пример                                          |
+|-----------------------------------------------------------------------------|---------------------|-------------------------------------------------|
+| Один набор данных на все процессы                                           | `create` / `attach` | [shared_pool.py](examples/shared_pool.py)       |
+| Набор в файле или в `bytes`                                                 | `dumps` / `loads`   | [file_mmap.py](examples/file_mmap.py)           |
+| Писатель обновляет данные, читатели получают каждый снимок (Linux, Windows) | `shmobj.channel`    | [channel_pubsub.py](examples/channel_pubsub.py) |
+| Независимые процессы берут последний снимок по имени (любая ОС)             | `shmobj.latest`     | [latest_pubsub.py](examples/latest_pubsub.py)   |
 
 Все примеры — в [examples/](examples/README.md).
 
 ### Общий набор данных
 
-Владелец создаёт сегмент и передаёт его имя другим процессам: аргументом задачи, через
-`initializer` пула ([shared_pool.py](examples/shared_pool.py)), переменной окружения.
+```python
+import shmobj
 
+segment = shmobj.create({
+    "users": [
+        {"id": 1, "name": "Ann", "score": 42},
+        {"id": 2, "name": "Bob", "score": 37},
+    ]
+})
+
+print(segment.name)  # имя передать процессам-читателям
+
+# в процессе читателе
+with shmobj.attach(segment_name) as segment:
+    users = segment.root["users"]
+
+    print(users[0].get_many(["id", "name"]))
+    total = sum(user["score"] for user in users.iter_values())
+```
+То же самое с обвязкой:
 ```python
 import functools
 import multiprocessing
@@ -74,6 +92,46 @@ if __name__ == "__main__":
             print(sum(pool.starmap(score, tasks, chunksize=10_000)))
 ```
 
+
+### Последний снимок по имени
+
+```python
+from shmobj import latest
+
+# писатель
+writer = latest.Writer("metrics")
+writer.put({"vms": {101: {"cpu": 0.5}}})  # прежний снимок удаляется
+
+# читатель, в любом процессе
+reader = latest.Reader("metrics")
+root = reader.get()  # None — снимков ещё не было; тот же объект, пока снимок не сменился
+```
+
+
+
+`shmobj.latest` — без сокетов: писатель кладёт снимок под именем, читатель забирает последний, когда нужен. Процессы
+запускаются в любом порядке, перезапуск писателя читателям не мешает. Linux, Windows и macOS.
+
+```python
+from shmobj import latest
+
+# писатель
+writer = latest.Writer("metrics")
+writer.put({"vms": {101: {"cpu": 0.5}}})  # прежний снимок удаляется
+
+# читатель, в любом процессе
+reader = latest.Reader("metrics")
+root = reader.get()  # None — снимков ещё не было; тот же объект, пока снимок не сменился
+```
+
+О новом снимке читатель узнаёт только опросом `get()`. После падения писателя на Linux и macOS имена остаются в
+`/dev/shm` до следующего писателя с тем же именем — [doc/usage.md](doc/usage.md#последний-снимок-по-имени).
+
+Владелец создаёт сегмент и передаёт его имя другим процессам ([shared_pool.py](examples/shared_pool.py)).
+Например, через `multiprocessing`
+
+
+
 ### Файл и bytes
 
 `dumps` даёт тот же формат, `loads` открывает его поверх `bytes`, `mmap` или любого буфера без копирования:
@@ -97,8 +155,8 @@ with open("data.shmobj", "rb") as file:  # в каждом процессе: с�
 Подключившийся читатель сразу получает последний снимок, отставшему промежуточные пропускаются. После падения любой
 стороны в ОС ничего не остаётся. Linux и Windows.
 
-Адрес постоянный: к перезапущенному писателю читатели подключаются по нему же. На Linux абстрактный адрес
-`"\0имя"` — не файл, ядро освобождает его вместе с писателем; на Windows — TCP на loopback.
+Адрес постоянный: к перезапущенному писателю читатели подключаются по нему же.
+На Linux абстрактный адрес `"\0имя"` — не файл, ядро освобождает его вместе с писателем; на Windows — TCP на loopback.
 
 #### Без asyncio
 
@@ -134,7 +192,8 @@ while True:
 
 #### asyncio
 
-Импорты и `ADDRESS` — как выше, плюс `import asyncio`; скрипт — [channel_pubsub_async.py](examples/channel_pubsub_async.py).
+Импорты и `ADDRESS` — как выше, плюс `import asyncio`;
+скрипт — [channel_pubsub_async.py](examples/channel_pubsub_async.py).
 
 Писатель:
 
