@@ -93,20 +93,26 @@ class Subscriber:
     def wait(self, timeout: float | None = None) -> bool:
         """Ждать нового снимка, блокируя поток (сон в `selectors`, без опроса): True — `latest` сменился;
         False — истёк `timeout` (None — без срока) или канал закрыт (`closed`). Исключения — как у
-        `receive`. После `attach` (до `detach`) — `ValueError`."""
+        `receive`. Пока сокет читает цикл asyncio (`attach`, `wait_async`; до `detach`) — `ValueError`."""
     async def wait_async(self, timeout: float | None = None) -> bool:
-        """`wait` для asyncio: ждать нового снимка, не блокируя цикл (`loop.add_reader`; цикл без него —
-        `sock_recv(sock, 0)`). Результат и исключения — как у `wait`; отменяется вместе с задачей.
-        После `attach` (до `detach`) — `ValueError`."""
+        """`wait` для asyncio: ждать нового снимка, не блокируя цикл. True — `latest` сменился с прошлого
+        `wait_async` (снимок мог прийти и между вызовами); False — истёк `timeout` (None — без срока), канал
+        закрыт (`closed`) или приём снят `detach`. Отменяется вместе с задачей.
+
+        Сокет читает приём `attach`: без него первый вызов включает приём без колбэка. Работает вместе с
+        `attach` и в нескольких задачах сразу — один снимок будит всех. Ошибка приёма (как у `receive`)
+        поднимается в ждущих; если приём включил `wait_async` и никто не ждал — в следующем вызове.
+        Приём в другом цикле — `ValueError`."""
     def attach(self, callback: Callable[[Value], None] | None = None, *,
                loop: asyncio.AbstractEventLoop | None = None) -> None:
         """Принимать снимки в цикле asyncio (`loop` — по умолчанию текущий): `callback(latest)` на каждый новый.
         `loop.add_reader`; цикл без него (ProactorEventLoop) — задача с `sock_recv(sock, 0)`.
 
-        Исключения `receive` и `callback` уходят в обработчик исключений цикла; приём продолжается.
+        Ошибку `receive` получают ждущие `wait_async`, без них она уходит в обработчик исключений цикла, как и
+        ошибки `callback`; приём продолжается.
         """
     def detach(self) -> None:
-        """Снять сокет с цикла asyncio; сокет остаётся открытым."""
+        """Снять сокет с цикла asyncio; сокет остаётся открытым, ждущие `wait_async` получают False."""
     def fileno(self) -> int: ...
     @property
     def closed(self) -> bool: ...

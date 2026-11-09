@@ -448,18 +448,47 @@ def test_wait_async(ends):
 
 
 @needs_channel
-def test_wait_after_attach(ends):
+def test_wait_with_loop_receiver(ends):
     _pub, sub = ends
 
     async def main():
         sub.attach()
-        with pytest.raises(ValueError):
+        with pytest.raises(ValueError):  # сокет читает цикл
             sub.wait(0)
-        with pytest.raises(ValueError):
-            await sub.wait_async(0)
         sub.detach()
         assert not sub.wait(0)
-        assert not await sub.wait_async(0)
+        assert not await sub.wait_async(0)  # включает приём в цикле
+        with pytest.raises(ValueError):
+            sub.wait(0)
+
+    asyncio.run(main())
+
+
+@needs_channel
+def test_wait_async_with_attach(ends):
+    pub, sub = ends
+
+    async def main():
+        loop = asyncio.get_running_loop()
+        got = []
+        sub.attach(lambda root: got.append(root["n"]))
+        loop.call_later(0.05, pub.publish, {"n": 1})
+        first, second = await asyncio.gather(sub.wait_async(5), sub.wait_async(5))
+        assert first and second and got == [1]  # один снимок будит всех ждущих и колбэк
+        assert not await sub.wait_async(0)  # с прошлого вызова снимков не было
+        pub.publish({"n": 2})
+        await asyncio.sleep(0.05)  # снимок принял колбэк, пока wait_async не ждал
+        assert got == [1, 2] and await sub.wait_async(0) and sub.latest["n"] == 2
+
+        task = asyncio.create_task(sub.wait_async())
+        await asyncio.sleep(0.05)
+        sub.detach()
+        assert not await task  # приём снят
+
+        sub.attach(lambda root: got.append(root["n"]))
+        loop.call_later(0.05, pub.close)
+        assert not await sub.wait_async() and sub.closed  # конец канала будит ожидание
+        assert got == [1, 2]
 
     asyncio.run(main())
 
@@ -619,17 +648,52 @@ def test_memfd_snapshot_is_sealed(memfd_ends):
             os.close(fd)
 
 
+def _send_unsealed(pub, obj):
+    """Снимок в memfd без печатей — читатель его отвергает."""
+    fd = os.memfd_create(pub._name, os.MFD_CLOEXEC)
+    try:
+        os.write(fd, shmobj.dumps(obj))
+        socket.send_fds(pub._subs[0], [b"S"], [fd])
+    finally:
+        os.close(fd)
+
+
+@needs_memfd
+def test_wait_async_receive_error(memfd_ends):
+    pub, sub = memfd_ends
+
+    async def main():
+        loop = asyncio.get_running_loop()
+        handled = []
+        loop.set_exception_handler(lambda _loop, context: handled.append(context["exception"]))
+        pub.publish([1])
+        assert await sub.wait_async(5)  # приём включил wait_async
+        loop.call_later(0.05, _send_unsealed, pub, [2])
+        with pytest.raises(ValueError, match="не запечатан"):  # ждущему — с трейсбеком приёма
+            await sub.wait_async(5)
+        _send_unsealed(pub, [3])
+        await asyncio.sleep(0.05)  # принял цикл, пока никто не ждал
+        with pytest.raises(ValueError, match="не запечатан"):
+            await sub.wait_async(5)
+        assert not await sub.wait_async(0)
+
+        sub.attach(lambda root: 1 / 0)  # приём включил attach
+        _send_unsealed(pub, [4])
+        await asyncio.sleep(0.05)  # отдельно: из очереди receive берёт только последний
+        pub.publish([5])
+        await asyncio.sleep(0.05)
+        assert [type(e) for e in handled] == [ValueError, ZeroDivisionError]  # ждущих нет — обработчику цикла
+        assert list(sub.latest) == [5]
+
+    asyncio.run(main())
+
+
 @needs_memfd
 def test_memfd_unsealed_snapshot_is_rejected(memfd_ends):
     pub, sub = memfd_ends
     pub.publish([1])
     sub.receive()
-    fd = os.memfd_create(pub._name, os.MFD_CLOEXEC)
-    try:
-        os.write(fd, shmobj.dumps([2]))
-        socket.send_fds(pub._subs[0], [b"S"], [fd])
-    finally:
-        os.close(fd)
+    _send_unsealed(pub, [2])
     with pytest.raises(ValueError, match="не запечатан"):
         sub.receive()
     assert list(sub.latest) == [1]

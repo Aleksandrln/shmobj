@@ -116,6 +116,10 @@ with shmobj.attach(name) as seg:
 | Без asyncio | `while sub.wait():` — сон в ядре до снимка; `False` — канал закрыт или истёк `timeout` |
 | asyncio, цикл ожидания | `while await sub.wait_async():` — то же, не блокируя цикл |
 | asyncio, в фоне | `sub.attach(callback)` — `callback(latest)` на каждый снимок; в запросе — `sub.latest` |
+
+В asyncio сокет читает приём в цикле: его включает `attach` или первый `wait_async`. Колбэк и `wait_async`
+работают вместе, `wait_async` можно ждать в нескольких задачах — снимок будит всех. Синхронный `wait()` при этом —
+`ValueError`, до `detach()`.
 | Несколько сокетов в одном потоке | `sub.fileno()` в своём `selectors`, затем `sub.receive()` без ожидания |
 
 `Subscriber` не переподключается сам: после ухода писателя читатель подключается заново
