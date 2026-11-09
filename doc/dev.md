@@ -21,6 +21,35 @@ Rust без Python: `cargo build --release` собирает ядро (`crates/s
 Версия пакета — `version` в `crates/shmobj-py/Cargo.toml` (`pyproject.toml` берёт её оттуда, `dynamic`),
 у `crates/shmobj-core` — та же. До первого выпуска — `0.1.0`.
 
+## Релиз
+
+CI (`.github/workflows/ci.yml`) на каждый пуш и PR гоняет только проверки (`rust`, `python`). Колёса (`wheels`) и
+sdist (`sdist`) собираются для тега `v*` и при ручном запуске.
+
+1. Поднять `version` в `crates/shmobj-py/Cargo.toml` и `crates/shmobj-core/Cargo.toml`, `cargo check` (обновит
+   `Cargo.lock`), слить в `master`.
+2. Тег на этом коммите `master`:
+
+   ```bash
+   git checkout master
+   git pull
+   git tag v0.1.0
+   git push origin v0.1.0
+   ```
+
+3. CI прогоняет проверки, собирает колёса и sdist; задача `release` сверяет тег с версией в `Cargo.toml` и создаёт
+   GitHub Release с этими файлами, описание — список PR с прошлого тега (`--generate-notes`). Результат — вкладка
+   Releases репозитория.
+
+Тег не совпал с версией или упала проверка — релиза нет; тег удаляют, исправляют и ставят заново:
+
+```bash
+git push origin :v0.1.0
+git tag -d v0.1.0
+```
+
+Колёса без релиза — Actions → ci → Run workflow: файлы — в артефактах `wheel-*` и `sdist` этого прогона.
+
 ## Проверки (то же, что в CI)
 
 ```bash
@@ -64,4 +93,5 @@ pytest                            # tests/: golden, сверка с эталон
   едет в колесо рядом с `shmobj`. В `pydevd_plugins/` и `extensions/` нет `__init__.py`: пакеты
   принадлежат pydevd, плагин — только часть пространства имён. Проверка — `tests/test_debugger.py`
   (нужен `pydevd-pycharm`, без него тест пропускается).
-- CI: задача `fuzz-smoke` убрана до появления `fuzz/` (cargo-fuzz). Остальные задачи — как в заготовке.
+- CI: задача `fuzz-smoke` убрана до появления `fuzz/` (cargo-fuzz); добавлены `sdist` и `release` (см. «Релиз»).
+  Остальные задачи — как в заготовке.

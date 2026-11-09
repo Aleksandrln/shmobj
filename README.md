@@ -70,11 +70,13 @@ CI собирает wheels для следующих платформ:
 - Windows x64;
 - macOS arm64.
 
-Готовые файлы доступны в артефактах задачи `wheels` в GitHub Actions. Для установки скачанного wheel:
+Готовые файлы приложены к [релизам](https://github.com/Aleksandrln/shmobj/releases). Установка:
 
 ```bash
-pip install ./shmobj-<version>-cp311-abi3-<platform>.whl
+pip install https://github.com/Aleksandrln/shmobj/releases/download/v<версия>/shmobj-<версия>-cp311-abi3-<платформа>.whl
 ```
+
+Как выпустить релиз — [doc/dev.md](doc/dev.md#релиз).
 
 > `shmobj.channel` поддерживается на Linux и Windows. На macOS конструкторы канала и `socketpair()` возвращают
 `NotImplementedError`.
@@ -95,15 +97,19 @@ curl --proto '=https' --tlsv1.2 -sSf https://sh.rustup.rs | sh
 pip install git+https://github.com/Aleksandrln/shmobj
 ```
 
-Колесо из клона репозитория:
+Колесо из клона репозитория. maturin ставится в venv, а не в системный Python (в Debian и Ubuntu `pip install` вне
+venv запрещён, PEP 668):
 
 ```bash
 git clone https://github.com/Aleksandrln/shmobj
 cd shmobj
+python3 -m venv .venv
+. .venv/bin/activate              # Windows: .venv\Scripts\activate
 pip install maturin
 maturin build --release -o dist   # dist/shmobj-<версия>-cp311-abi3-<платформа>.whl
-pip install dist/shmobj-*.whl
 ```
+
+Колесо ставится в любое окружение с CPython 3.11+ на той же платформе: `pip install dist/shmobj-*.whl`.
 
 Колесо, собранное на Linux, привязано к glibc этой машины. Переносимое Linux-колесо и колесо Windows, собранное на
 Linux, — в [doc/usage.md](doc/usage.md#сборка), окружение разработки — в [doc/dev.md](doc/dev.md).
