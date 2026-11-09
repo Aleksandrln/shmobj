@@ -11,7 +11,7 @@ import shmobj
 seg = shmobj.create(data)                 # новая SharedMemory, имя генерируется
 seg.name                                  # передать в другие процессы
 
-# другой процесс
+# другой процесс, name — seg.name из создателя
 with shmobj.attach(name) as seg:
     users = seg.root["users"]             # FrozenList
     names = users[0].get_many(["id", "name"])
@@ -26,6 +26,7 @@ with shmobj.attach(name) as seg:
 | `create(obj, name=None, *, dedup=True, checksum=True, unlink_on_close=False) -> Segment` | `dumps` и запись в новую `SharedMemory`. Процесс-создатель становится владельцем сегмента. `unlink_on_close=True` — `close()` создателя вызывает и `unlink()` (имя уже удалено — без ошибки) |
 | `attach(name, *, verify=False) -> Segment` | Подключение к существующему сегменту |
 | `validate(buf) -> None` | Полная проверка формата, иначе `FormatError` |
+| `FORMAT_VERSION: int` | Версия формата, которую пишет и читает пакет (1); от версии пакета не зависит |
 
 `Value = None | bool | int | float | str | bytes | FrozenList | FrozenDict`
 

@@ -14,7 +14,7 @@ import shmobj
 
 segment = shmobj.create({"users": [{"id": 1, "name": "ann"}], "limits": {"rps": 100}})
 
-# в другом процессе
+# в другом процессе, name — segment.name из создателя
 with shmobj.attach(name) as seg:
     cfg = seg.root                                # FrozenDict
     cfg["users"][0]["name"]                       # 'ann'

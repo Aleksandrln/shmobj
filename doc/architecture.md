@@ -25,6 +25,8 @@ crates/shmobj-core/src/
     writer.rs       #   сборка: дедупликация, KEYTABLE, типизированные списки
     validate.rs     #   полный обход, инварианты format.md §9
 crates/shmobj-py/src/
+  lib.rs            # модуль shmobj._core: классы, функции, FORMAT_VERSION
+  errors.rs         # FormatError, SegmentClosedError
   segment.rs        # Segment: PyBuffer + флаг closed
   frozen_dict.rs, frozen_list.rs, iter.rs   # прокси, представления, итераторы
   decode.rs         # слот → Python-объект
