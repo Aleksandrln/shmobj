@@ -133,7 +133,6 @@ Windows — имя). Старые снимки освобождаются, ко�
 Один писатель и несколько читателей — например, воркеры Gunicorn или Uvicorn. Писатель:
 
 ```python
-import contextlib
 import itertools
 import os
 import sys
@@ -150,8 +149,8 @@ with tempfile.TemporaryDirectory() as tmp, channel.Publisher() as pub:
     address = pub.accept_in_thread(listener)  # подписывать подключения в фоновом потоке
     print(address, flush=True)  # передать читателям: путь или (host, port)
     for tick in itertools.count():
-        with contextlib.suppress(BrokenPipeError):  # ушёл последний читатель; новые ещё подключатся
-            pub.publish({"tick": tick, "vms": {vm: {"cpu": tick % 100} for vm in range(100, 110)}})
+        # Читатели приходят и уходят; без читателей снимок только запоминается для следующего.
+        pub.publish({"tick": tick, "vms": {vm: {"cpu": tick % 100} for vm in range(100, 110)}})
         time.sleep(1)
 ```
 
