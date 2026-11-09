@@ -89,6 +89,10 @@ pytest                            # tests/: golden, сверка с эталон
 
 ## Конфигурация репозитория
 
+- Лицензия `MIT OR Apache-2.0`: `license` в `Cargo.toml` (workspace) и `pyproject.toml`; тексты — `LICENSE-MIT`,
+  `LICENSE-APACHE`, `license-files` кладёт их в колесо (`.dist-info/licenses/`) и sdist. Автор и ссылки на GitHub —
+  строка copyright в `LICENSE-MIT`, `authors`/`repository` в `Cargo.toml` (workspace), `authors` и `[project.urls]`
+  в `pyproject.toml`; текст `LICENSE-APACHE` не меняется.
 - `rustfmt.toml`: `max_width = 120`.
 - `shmobj-core`: `[lints]` запрещают `unsafe`, `panic`, `unwrap`, индексацию без проверки.
 - `shmobj-py` не зависит от `xxhash-rust` напрямую: хэш считается в `shmobj-core`.
