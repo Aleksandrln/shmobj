@@ -8,7 +8,7 @@
 | 1 | Ядро: чтение | Готово: заголовок, слоты, скаляры, LIST (все подтипы), DICT/KEYTABLE (LINEAR, SORTED32), `validate`. Нет fuzz-целей и proptest |
 | 2 | Привязки: чтение | Готово функционально: `Segment`, `FrozenDict`, `FrozenList`, срезы, `keys/values/items`, `get_many`, `iter_*`, `materialize`, `==`, `repr`, отказ `hash`/`pickle`, `loads`/`validate` |
 | 3 | Сборка | Готово: `Writer` + обход Python-объектов, `dumps_into` (сборка в буфер вызывающего; через него `create` и канал), дедупликация, общие KEYTABLE, типизированные списки, пути в ошибках, циклы. Байты совпадают с эталоном |
-| 4 | Жизненный цикл | Готово базово: `create`/`attach`/`close`/`unlink`, `resource_tracker` 3.11–3.12, `track=False` 3.13+. На Windows/macOS не проверялось локально (только CI) |
+| 4 | Жизненный цикл | Готово базово: `create`/`attach`/`close`/`unlink`, `create(..., unlink_on_close=True)`, `resource_tracker` 3.11–3.12, `track=False` 3.13+. На Windows/macOS не проверялось локально (только CI) |
 | 4a | Канал снимков | Готово: `shmobj.channel` (`02-api.md` §6): Linux — memfd, Windows — именованные снимки с подтверждением (проверяется в CI); один снимок на нескольких подписчиков (`Publisher.add`, `listen`/`connect`, приём подключений — `accept_in_thread` / `accept_in_loop`, уход последнего подписчика при нём — не `BrokenPipeError`); читатель без asyncio ждёт блокирующим `Subscriber.wait`; на macOS `SUPPORTED = False` |
 | 4b | Последний снимок по имени | Готово: `shmobj.latest` (`02-api.md` §7): `Writer.put` / `Reader.get` по имени без сокетов, любая ОС; уборка имён в `close()` и при выходе, подхват после падения писателя |
 | 5 | Производительность | Не начато |

@@ -42,6 +42,20 @@ def test_context_manager_and_unlink():
             shmobj.attach(name)
 
 
+def test_unlink_on_close():
+    with shmobj.create([1, 2, 3], unlink_on_close=True) as seg:
+        name = seg.name
+        with shmobj.attach(name) as other:
+            pass
+        assert other.closed and not seg.closed  # закрытие читателя имя не трогает
+    if os.name == "posix":
+        with pytest.raises(FileNotFoundError):
+            shmobj.attach(name)
+    seg = shmobj.create([1], unlink_on_close=True)
+    seg.unlink()
+    seg.close()  # имя уже удалено — без ошибки
+
+
 def test_loads_over_mmap_holds_export(tmp_path):
     p = tmp_path / "seg.bin"
     p.write_bytes(shmobj.dumps({"a": [1, 2]}))

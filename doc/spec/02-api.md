@@ -22,7 +22,7 @@ with shmobj.attach(name) as seg:
 | `dumps(obj, *, dedup=True, checksum=True) -> bytes` | Собрать сегмент в `bytes` |
 | `dumps_into(obj, alloc, *, dedup=True, checksum=True) -> int` | Собрать сегмент и записать в начало буфера `alloc(size)` (записываемый, C-непрерывный, не короче `size`, иначе `ValueError`); возвращает `size`. Без промежуточных `bytes`; экспорт буфера отпускается до возврата. Ошибка сборки — до вызова `alloc` |
 | `loads(buf, *, verify=False) -> Value` | Корень поверх буфера без копирования. `verify=True` дополнительно проверяет контрольную сумму, O(n) |
-| `create(obj, name=None, *, dedup=True, checksum=True) -> Segment` | `dumps` и запись в новую `SharedMemory`. Процесс-создатель становится владельцем сегмента |
+| `create(obj, name=None, *, dedup=True, checksum=True, unlink_on_close=False) -> Segment` | `dumps` и запись в новую `SharedMemory`. Процесс-создатель становится владельцем сегмента. `unlink_on_close=True` — `close()` создателя вызывает и `unlink()` (имя уже удалено — без ошибки) |
 | `attach(name, *, verify=False) -> Segment` | Подключение к существующему сегменту |
 | `validate(buf) -> None` | Полная проверка формата, иначе `FormatError` |
 
@@ -42,12 +42,13 @@ with shmobj.attach(name) as seg:
 | `close()` | Помечает сегмент закрытым, освобождает буфер и закрывает `SharedMemory` в этом процессе. Идемпотентен |
 | `unlink()` | Удаляет именованный сегмент из ОС (на Windows ничего не делает, см. ниже) |
 | `closed: bool` | |
-| `__enter__` / `__exit__` | `close()` на выходе; `unlink()` не вызывается |
+| `__enter__` / `__exit__` | `close()` на выходе; `unlink()` — только у `create(..., unlink_on_close=True)` |
 
 Жизненный цикл:
 - Прокси держат сильную ссылку на `Segment`, поэтому сегмент не освобождается, пока жив хотя бы один прокси.
 - После `close()` любое обращение через старые прокси даёт `SegmentClosedError`.
-- `unlink()` вызывает тот, кто решает, что данные больше не нужны: обычно создатель.
+- `unlink()` вызывает тот, кто решает, что данные больше не нужны: обычно создатель (или его `close()` при
+  `unlink_on_close=True`; сегмент, собранный сборщиком мусора без `close()`, имя не удаляет).
   Процессы, которые уже подключились, продолжают работать до своего `close()`.
 - Windows: сегмент существует, пока открыт хотя бы один дескриптор; `unlink()` ничего не делает.
 - 3.11–3.12: `attach` снимает регистрацию сегмента в `resource_tracker`,
