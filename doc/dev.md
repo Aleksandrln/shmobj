@@ -13,10 +13,7 @@ maturin develop --release        # собрать shmobj._core и постави
 `maturin develop` без `--release` собирает debug-версию: она в ~10 раз медленнее,
 для замеров скорости не подходит.
 
-Rust без Python: `cargo build --release` собирает ядро (`crates/shmobj-core`) и расширение
-(`crates/shmobj-py`, на Linux — `target/release/lib_core.so`). Эта библиотека — не пакет: модулем `shmobj._core` с Python-частью
-из `python/` его делает maturin (`develop` или `build`). Колесо — `maturin build --release -o dist`, подробности —
-[usage.md](usage.md#сборка).
+Колесо, sdist и переносимые сборки — [build.md](build.md).
 
 Версия пакета — `version` в `crates/shmobj-py/Cargo.toml` (`pyproject.toml` берёт её оттуда, `dynamic`),
 у `crates/shmobj-core` — та же. До первого выпуска — `0.1.0`.
@@ -57,11 +54,20 @@ cargo fmt --check
 cargo clippy --all-targets -- -D warnings
 cargo test -p shmobj-core
 pytest reference/                 # тесты эталона
-pytest                            # tests/: golden, сверка с эталоном, API, жизненный цикл
+pytest                            # tests/: golden, сверка с эталоном, API, жизненный цикл, канал, latest, примеры
 ```
 
-Перегенерация `golden/*.bin` эталоном: `python3 golden/gen_golden.py`.
-Формат меняется только через `doc/spec/03-format.md` и `reference/shmobj_ref.py` одновременно.
+Перегенерация `golden/*.bin` эталоном: `python3 golden/gen_golden.py`. Что покрыто тестами и чего нет —
+[status.md](status.md#тесты).
+
+## Источники истины
+
+1. [format.md](format.md) — формат.
+2. `reference/shmobj_ref.py` — исполняемая трактовка формата: сборка, чтение, `get_many`, `iter_*`, `materialize`,
+   `validate`. Расхождение с `format.md` — дефект обоих, решение записывается в `format.md`; формат меняется только в
+   обоих сразу.
+3. `python/shmobj/__init__.pyi`, `channel.pyi`, `latest.pyi` — контракт API; [api.md](api.md) — семантика. Жизненный
+   цикл `Segment`, `repr`, отказ `pickle`, представления `keys/values/items`, канал и `latest` есть только там.
 
 ## Порядок в модуле
 
@@ -77,21 +83,17 @@ pytest                            # tests/: golden, сверка с эталон
 | `crates/shmobj-py` | cdylib `shmobj._core` (PyO3): `Segment`, прокси, итераторы, сборка из Python-объектов; весь `unsafe` здесь |
 | `python/shmobj` | Пакет: реэкспорт `_core`, регистрация в ABC, `create`/`attach` поверх `SharedMemory` (`_shm.py`), канал снимков (`channel.py`), последний снимок по имени (`latest.py`), `.pyi` |
 | `tests/` | pytest; `conftest.py` добавляет `reference/` и `golden/` в `sys.path` |
-| `examples/` | Запускаемые примеры канала (синхронный и asyncio-читатель, несколько читателей); их прогоняет `tests/test_examples.py` |
-| `reference/`, `golden/` | Эталон и эталонные сегменты из ТЗ |
-| `doc/spec/` | ТЗ (ссылки внутри поправлены под эту раскладку) |
+| `examples/` | Рабочие примеры из README ([examples/README.md](../examples/README.md)); их прогоняет `tests/test_examples.py` |
+| `reference/`, `golden/` | Эталон формата на Python (`pytest reference/`) и эталонные сегменты с входными данными (`cases.py`) |
+| `doc/` | Руководство, справочник API, формат, архитектура, сборка, разработка, состояние |
 
 ## Конфигурация репозитория
 
-Отличия от заготовок `skeleton/` из ТЗ:
-
 - `rustfmt.toml`: `max_width = 120`.
-- Зависимость `zerocopy` не используется: заголовок разбирается через `from_le_bytes` (допустимая замена по `doc/spec/06-references.md`).
-- `criterion` убран из dev-зависимостей до появления `benches/`.
+- `shmobj-core`: `[lints]` запрещают `unsafe`, `panic`, `unwrap`, индексацию без проверки.
 - `shmobj-py` не зависит от `xxhash-rust` напрямую: хэш считается в `shmobj-core`.
 - `pyproject.toml`: `python-packages = ["pydevd_plugins"]` — плагин отладчика из `python/pydevd_plugins`
   едет в колесо рядом с `shmobj`. В `pydevd_plugins/` и `extensions/` нет `__init__.py`: пакеты
   принадлежат pydevd, плагин — только часть пространства имён. Проверка — `tests/test_debugger.py`
   (нужен `pydevd-pycharm`, без него тест пропускается).
-- CI: задача `fuzz-smoke` убрана до появления `fuzz/` (cargo-fuzz); добавлены `sdist` и `release` (см. «Релиз»).
-  Остальные задачи — как в заготовке.
+- CI (`.github/workflows/ci.yml`): `rust`, `python` на каждый пуш и PR; `wheels`, `sdist`, `release` — см. «Релиз».

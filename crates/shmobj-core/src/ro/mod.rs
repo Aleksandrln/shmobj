@@ -6,7 +6,7 @@ pub mod reader;
 pub mod validate;
 pub mod writer;
 
-/// Типы контейнерных узлов (doc/spec/03-format.md §4).
+/// Типы контейнерных узлов (doc/format.md §4).
 pub const NODE_LIST: u8 = 1;
 pub const NODE_DICT: u8 = 2;
 pub const NODE_KEYTABLE: u8 = 3;

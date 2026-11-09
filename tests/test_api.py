@@ -1,4 +1,4 @@
-"""Семантика API (doc/spec/02-api.md)."""
+"""Семантика API (doc/api.md)."""
 import math
 import pickle
 from collections.abc import Mapping, Sequence

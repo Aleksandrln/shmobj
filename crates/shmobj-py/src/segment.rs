@@ -63,7 +63,7 @@ impl Segment {
         let ptr = buffer.buf_ptr() as usize;
         let len = buffer.len_bytes();
         // SAFETY: буфер экспортирован и удерживается `buffer` до конца функции;
-        // RO-сегмент после публикации не изменяется (контракт doc/spec/04-architecture.md §3).
+        // RO-сегмент после публикации не изменяется (контракт doc/architecture.md §3).
         let bytes: &[u8] = if len == 0 {
             &[]
         } else {

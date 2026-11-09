@@ -1,4 +1,4 @@
-//! DICT и KEYTABLE (doc/spec/03-format.md §6–7).
+//! DICT и KEYTABLE (doc/format.md §6–7).
 
 use crate::format::error::{FormatError, Result};
 use crate::format::hash::{key_hash64, Key};

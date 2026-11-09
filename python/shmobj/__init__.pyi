@@ -2,7 +2,7 @@
 
 Сегмент собирается один раз (`dumps`, `create`), читается без копирования (`loads`, `attach`):
 контейнеры приходят прокси `FrozenDict`/`FrozenList`, скаляры — обычными объектами Python.
-Контракт; семантика — doc/spec/02-api.md.
+Контракт; семантика — doc/api.md.
 """
 from collections.abc import Callable, Iterable, Iterator, ItemsView, KeysView, ValuesView
 from typing import Any, Final, TypeAlias, TypeVar, overload

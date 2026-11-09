@@ -1,6 +1,7 @@
-# 02. Python API
+# Python API
 
-Контракт с типами: `python/shmobj/__init__.pyi`.
+Справочник: семантика, ошибки, устройство канала и `latest`. Контракт с типами — `python/shmobj/__init__.pyi`,
+`channel.pyi`, `latest.pyi`; руководство с примерами — [usage.md](usage.md).
 
 ## 1. Модуль
 
@@ -31,6 +32,26 @@ with shmobj.attach(name) as seg:
 Параметры сборки:
 - `dedup` — дедупликация одинаковых скаляров. Таблицы ключей дедуплицируются всегда.
 - `checksum` — записать в заголовок xxh3_64 тела сегмента.
+
+Поддерживаемые данные:
+
+| Python-тип | Хранение | При чтении |
+|---|---|---|
+| `None`, `bool` | в слоте | тот же тип |
+| `int` | в слоте (60 бит), int64 или bigint любой длины | `int` |
+| `float` | узел f64 | `float` |
+| `str` | ≤ 7 байт UTF-8 — в слоте, иначе узел | `str` |
+| `bytes`, `bytearray`, `memoryview` | узел | `bytes` |
+| `list`, `tuple` | LIST | `FrozenList` |
+| `dict` (точный тип) | DICT + KEYTABLE | `FrozenDict` |
+
+- Ключи `dict`: `None`, `bool`, `int`, `float` (кроме NaN), `str`, `bytes`. Эквивалентность ключей — как у `dict`:
+  `1 == 1.0 == True`.
+- Подклассы `dict`/`list`/`str`/`int`, `set`, `datetime`, `Decimal`, numpy, свои классы и ключи-кортежи — `TypeError`
+  с путём до значения. Строки с суррогатами — ошибка сборки.
+- Цикл в данных — `ValueError`; вложенность при сборке и `materialize` — не больше 1000 (`ValueError`).
+- Пределы: до 2³²−1 элементов в контейнере, строка до 4 ГиБ, сегмент до 2⁶⁰ байт.
+- Только CPython ≥ 3.11 (abi3); free-threaded сборки не поддерживаются.
 
 ## 2. `Segment`
 
@@ -163,6 +184,7 @@ sub.latest["vms"].get_many([101, 102], None)         # корень послед
 | `Subscriber.latest` | Корень последнего принятого снимка, `None` — снимков не было. Переживает закрытие канала |
 | `Subscriber.receive() -> bool` | Разбирает очередь без ожидания и берёт последний снимок, прочие закрывает (Windows — подтверждает). `True` — `latest` сменился. Конец канала закрывает сокет. Linux: незапечатанный снимок — `ValueError`, `latest` прежний |
 | `Subscriber.wait(timeout=None) -> bool` | Блокирующее ожидание для кода без asyncio: `receive()`, пока `latest` не сменится, между попытками — сон в своём `selectors` на сокете. `True` — новый снимок; `False` — истёк `timeout` или канал закрыт. После `attach` — `ValueError` |
+| `await Subscriber.wait_async(timeout=None) -> bool` | `wait` для asyncio: тот же результат, ожидание в цикле (`loop.add_reader`, без него — `sock_recv(sock, 0)`), отменяется вместе с задачей. После `attach` — `ValueError` |
 | `Subscriber.attach(callback=None, *, loop=None)` | По умолчанию текущий цикл. `loop.add_reader`, а в цикле без него (ProactorEventLoop, Windows) — задача, которая ждёт `sock_recv(sock, 0)` (IOCP завершает его, когда есть данные или конец). `receive()` по готовности сокета, `callback(latest)` на каждый новый снимок. Исключения уходят в обработчик исключений цикла, приём продолжается. Конец канала снимает сокет с цикла |
 | `Subscriber.detach()` | Снять с цикла, сокет открыт |
 | `closed`, `close()`, `__enter__`/`__exit__` | У обоих концов; `close()` идемпотентен. `fileno()` — у `Subscriber`: ждать несколько сокетов в своём `select`/`selectors`, затем `receive()` |
@@ -230,6 +252,6 @@ r.get()["vms"].get_many([101, 102], None)   # корень последнего 
 Отличия от канала (§6): нет уведомления о новом снимке (читатель опрашивает `get()`), нет печатей
 (неизменность снимка — на писателе), после падения писателя на POSIX остаются имена.
 
-## 8. Зарезервированные имена (RW, не реализуются в v1)
+## 8. Зарезервированные имена (RW, не реализованы)
 
-`SharedDict`, `SharedList`, `create_rw`, `attach_rw`, `freeze`, `thaw`, модуль `shmobj.abc`.
+`SharedDict`, `SharedList`, `create_rw`, `attach_rw`, `freeze`, `thaw`, модуль `shmobj.abc` — см. [rw.md](rw.md).
