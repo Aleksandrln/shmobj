@@ -1,5 +1,5 @@
 //! Общее для RO и будущего RW: заголовок, слоты, узлы скаляров, хэш ключей.
-//! Не зависит от `ro/` (doc/spec/05-rw-groundwork.md §2).
+//! Не зависит от `ro/` (doc/rw.md §2).
 
 pub mod error;
 pub mod hash;

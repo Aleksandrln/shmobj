@@ -1,4 +1,4 @@
-//! Слот: `tag = slot & 0xF`, `payload = slot >> 4` (doc/spec/03-format.md §2).
+//! Слот: `tag = slot & 0xF`, `payload = slot >> 4` (doc/format.md §2).
 
 use super::error::{FormatError, Result};
 

@@ -1,6 +1,7 @@
-# 02. Python API
+# Python API
 
-Контракт с типами: `python/shmobj/__init__.pyi`.
+Справочник: семантика, ошибки, устройство канала и `latest`. Контракт с типами — `python/shmobj/__init__.pyi`,
+`channel/__init__.pyi`, `latest.pyi`; руководство с примерами — [usage.md](usage.md).
 
 ## 1. Модуль
 
@@ -22,7 +23,7 @@ with shmobj.attach(name) as seg:
 | `dumps(obj, *, dedup=True, checksum=True) -> bytes` | Собрать сегмент в `bytes` |
 | `dumps_into(obj, alloc, *, dedup=True, checksum=True) -> int` | Собрать сегмент и записать в начало буфера `alloc(size)` (записываемый, C-непрерывный, не короче `size`, иначе `ValueError`); возвращает `size`. Без промежуточных `bytes`; экспорт буфера отпускается до возврата. Ошибка сборки — до вызова `alloc` |
 | `loads(buf, *, verify=False) -> Value` | Корень поверх буфера без копирования. `verify=True` дополнительно проверяет контрольную сумму, O(n) |
-| `create(obj, name=None, *, dedup=True, checksum=True) -> Segment` | `dumps` и запись в новую `SharedMemory`. Процесс-создатель становится владельцем сегмента |
+| `create(obj, name=None, *, dedup=True, checksum=True, unlink_on_close=False) -> Segment` | `dumps` и запись в новую `SharedMemory`. Процесс-создатель становится владельцем сегмента. `unlink_on_close=True` — `close()` создателя вызывает и `unlink()` (имя уже удалено — без ошибки) |
 | `attach(name, *, verify=False) -> Segment` | Подключение к существующему сегменту |
 | `validate(buf) -> None` | Полная проверка формата, иначе `FormatError` |
 
@@ -31,6 +32,26 @@ with shmobj.attach(name) as seg:
 Параметры сборки:
 - `dedup` — дедупликация одинаковых скаляров. Таблицы ключей дедуплицируются всегда.
 - `checksum` — записать в заголовок xxh3_64 тела сегмента.
+
+Поддерживаемые данные:
+
+| Python-тип | Хранение | При чтении |
+|---|---|---|
+| `None`, `bool` | в слоте | тот же тип |
+| `int` | в слоте (60 бит), int64 или bigint любой длины | `int` |
+| `float` | узел f64 | `float` |
+| `str` | ≤ 7 байт UTF-8 — в слоте, иначе узел | `str` |
+| `bytes`, `bytearray`, `memoryview` | узел | `bytes` |
+| `list`, `tuple` | LIST | `FrozenList` |
+| `dict` (точный тип) | DICT + KEYTABLE | `FrozenDict` |
+
+- Ключи `dict`: `None`, `bool`, `int`, `float` (кроме NaN), `str`, `bytes`. Эквивалентность ключей — как у `dict`:
+  `1 == 1.0 == True`.
+- Подклассы `dict`/`list`/`str`/`int`, `set`, `datetime`, `Decimal`, numpy, свои классы и ключи-кортежи — `TypeError`
+  с путём до значения. Строки с суррогатами — ошибка сборки.
+- Цикл в данных — `ValueError`; вложенность при сборке и `materialize` — не больше 1000 (`ValueError`).
+- Пределы: до 2³²−1 элементов в контейнере, строка до 4 ГиБ, сегмент до 2⁶⁰ байт.
+- Только CPython ≥ 3.11 (abi3); free-threaded сборки не поддерживаются.
 
 ## 2. `Segment`
 
@@ -42,12 +63,13 @@ with shmobj.attach(name) as seg:
 | `close()` | Помечает сегмент закрытым, освобождает буфер и закрывает `SharedMemory` в этом процессе. Идемпотентен |
 | `unlink()` | Удаляет именованный сегмент из ОС (на Windows ничего не делает, см. ниже) |
 | `closed: bool` | |
-| `__enter__` / `__exit__` | `close()` на выходе; `unlink()` не вызывается |
+| `__enter__` / `__exit__` | `close()` на выходе; `unlink()` — только у `create(..., unlink_on_close=True)` |
 
 Жизненный цикл:
 - Прокси держат сильную ссылку на `Segment`, поэтому сегмент не освобождается, пока жив хотя бы один прокси.
 - После `close()` любое обращение через старые прокси даёт `SegmentClosedError`.
-- `unlink()` вызывает тот, кто решает, что данные больше не нужны: обычно создатель.
+- `unlink()` вызывает тот, кто решает, что данные больше не нужны: обычно создатель (или его `close()` при
+  `unlink_on_close=True`; сегмент, собранный сборщиком мусора без `close()`, имя не удаляет).
   Процессы, которые уже подключились, продолжают работать до своего `close()`.
 - Windows: сегмент существует, пока открыт хотя бы один дескриптор; `unlink()` ничего не делает.
 - 3.11–3.12: `attach` снимает регистрацию сегмента в `resource_tracker`,
@@ -101,7 +123,7 @@ with shmobj.attach(name) as seg:
 
 Один писатель отдаёт снимки целиком одному или нескольким читателям; читателю нужен только
 последний. Снимок собирается один раз на всех подписчиков. Контракт с типами:
-`python/shmobj/channel.pyi`.
+`python/shmobj/channel/__init__.pyi`.
 
 ```python
 pub_sock, sub_sock = shmobj.channel.socketpair()     # pub_sock — в дочерний процесс: spawn_kwargs(pub_sock)
@@ -128,8 +150,9 @@ sub.latest["vms"].get_many([101, 102], None)         # корень послед
   прокси.
 
 Передача на Windows (нет memfd, печатей и передачи handle в сообщении):
-- снимок — `create(obj, "<name>-<pid>-<номер>")`; по сокету (`socket.socketpair()`, loopback TCP)
-  идёт имя строкой с `\n`;
+- снимок — `create(obj, "<name>-<pid>-<писатель>-<номер>")`, `<писатель>` — номер писателя в процессе:
+  у писателей с одним `name` имена не совпадают; по сокету (`socket.socketpair()`, loopback TCP) идёт имя
+  строкой с `\n`;
 - всем подписчикам — одно имя. Читатель разбирает очередь, открывает (`attach`) последний снимок,
   который ещё есть, и отвечает именами всех принятых строками с `\n`. Писатель читает
   подтверждения при следующем `publish` и закрывает снимок, когда тот не последний и подтверждён
@@ -148,21 +171,23 @@ sub.latest["vms"].get_many([101, 102], None)         # корень послед
 | `SUPPORTED: bool` | Linux (`sys.platform`; CPython с `os.memfd_create`) или Windows. Иначе (macOS) конструкторы, `socketpair()` и `spawn_kwargs()` дают `NotImplementedError` |
 | `socketpair()` | Linux — AF_UNIX SOCK_SEQPACKET, Windows — loopback TCP; концы равноправны, не наследуются |
 | `listen(address, backlog=16)` | Слушающий сокет писателя. Linux — AF_UNIX SOCK_SEQPACKET, `address` — путь (файл не должен существовать) или абстрактное имя `"\0…"`; Windows — TCP, `address = (host, port)` |
-| `connect(address)` | Сокет читателя, подключённый к `listen(address)` |
+| `connect(address, *, wait_writer=False)` | Сокет читателя, подключённый к `listen(address)`. Адрес никто не слушает (`ConnectionRefusedError`, `FileNotFoundError`): `False` — исключение сразу; `True` — попытки каждые 0,2 с без срока; число — не дольше стольких секунд, затем то же исключение (срок проверяется между попытками). Прочие ошибки — сразу. Блокирует поток |
+| `await connect_async(address, *, wait_writer=False)` | То же в текущем цикле asyncio: `loop.sock_connect` и `asyncio.sleep`, отменяется вместе с задачей |
 | `spawn_kwargs(sock) -> dict` | Аргументы `Popen`/`create_subprocess_exec` для наследования `sock`: `pass_fds` (Linux), `startupinfo` с `handle_list` (Windows; `sock` становится наследуемым). В дочернем процессе — `socket.socket(fileno=…)` с номером из родителя |
 | `Publisher(sock=None, *, sndbuf=16384, name="shmobj")` | `sock` — первый подписчик (`add`). Linux: `SO_SNDBUF = sndbuf` у сокета каждого подписчика, `name` — имя memfd (видно в `/proc/<pid>/maps`). Windows: `sndbuf` не используется, `name` — префикс имён снимков |
 | `Publisher.add(sock)` | Владеет `sock`, переводит в неблокирующий режим; последний снимок уходит сразу. Писатель закрыт — `ValueError` |
 | `Publisher.accept_in_thread(listener) -> address` | `listener.getsockname()` — адрес для `connect`. Фоновый поток (daemon) ждёт `listener` в `selectors` и подписывает все ожидающие подключения. `add`, `publish`, `close` — под замком. Владеет `listener`: `close()` будит поток (своя пара сокетов), дожидается его и закрывает `listener` |
 | `Publisher.accept_in_loop(listener, *, loop=None) -> address` | То же в цикле asyncio без потока: `loop.add_reader`, в цикле без него (ProactorEventLoop) — задача с `loop.sock_accept`. `close()` снимает приём с цикла и закрывает `listener` |
 | `Publisher.subscribers -> int` | Число подписчиков; закрывшие канал убираются (и их сокеты закрываются) при `publish` |
-| `Publisher.publish(obj, *, dedup=True, checksum=True) -> bool` | Одна сборка, отправка всем, не блокирует. `False` — у кого-то очередь полна, ему снимок пропущен. Снимок становится последним и без подписчиков. Последний подписчик закрыл канал — `BrokenPipeError` (следующий `publish` без подписчиков — без ошибки). Писатель закрыт — `ValueError` |
+| `Publisher.publish(obj, *, dedup=True, checksum=True) -> bool` | Одна сборка, отправка всем, не блокирует. `False` — у кого-то очередь полна, ему снимок пропущен. Снимок становится последним и без подписчиков. Последний подписчик закрыл канал — `BrokenPipeError` (следующий `publish` без подписчиков — без ошибки); при приёме подключений (`accept_in_*`) — без ошибки. Писатель закрыт — `ValueError` |
 | `Publisher.close()` | Останавливает приём подключений, закрывает сокеты подписчиков и `listener`, отпускает снимки писателя. Windows: и неподтверждённые — читатели их не получат |
 | `Subscriber(sock, *, verify=False)` | Владеет `sock`. `verify` передаётся в `loads`/`attach` для каждого снимка |
 | `Subscriber.latest` | Корень последнего принятого снимка, `None` — снимков не было. Переживает закрытие канала |
 | `Subscriber.receive() -> bool` | Разбирает очередь без ожидания и берёт последний снимок, прочие закрывает (Windows — подтверждает). `True` — `latest` сменился. Конец канала закрывает сокет. Linux: незапечатанный снимок — `ValueError`, `latest` прежний |
-| `Subscriber.wait(timeout=None) -> bool` | Блокирующее ожидание для кода без asyncio: `receive()`, пока `latest` не сменится, между попытками — сон в своём `selectors` на сокете. `True` — новый снимок; `False` — истёк `timeout` или канал закрыт. После `attach` — `ValueError` |
-| `Subscriber.attach(callback=None, *, loop=None)` | По умолчанию текущий цикл. `loop.add_reader`, а в цикле без него (ProactorEventLoop, Windows) — задача, которая ждёт `sock_recv(sock, 0)` (IOCP завершает его, когда есть данные или конец). `receive()` по готовности сокета, `callback(latest)` на каждый новый снимок. Исключения уходят в обработчик исключений цикла, приём продолжается. Конец канала снимает сокет с цикла |
-| `Subscriber.detach()` | Снять с цикла, сокет открыт |
+| `Subscriber.wait(timeout=None) -> bool` | Блокирующее ожидание для кода без asyncio: `receive()`, пока `latest` не сменится, между попытками — сон в своём `selectors` на сокете. `True` — новый снимок; `False` — истёк `timeout` или канал закрыт. Пока сокет читает цикл asyncio (`attach`, `wait_async`; до `detach`) — `ValueError` |
+| `await Subscriber.wait_async(timeout=None) -> bool` | Ожидание в asyncio. Сокет читает приём `attach`, без него первый вызов включает приём без колбэка; новый снимок будит всех ждущих, затем вызывается колбэк. `True` — `latest` сменился с прошлого `wait_async` (в том числе между вызовами); `False` — истёк `timeout`, канал закрыт или приём снят `detach`. Отменяется вместе с задачей. Ошибка приёма (как у `receive`) поднимается в ждущих; если никто не ждал и колбэка нет — в следующем вызове, а не забранная до `detach` или конца канала — в обработчике исключений цикла. Приём в другом цикле — `ValueError` |
+| `Subscriber.attach(callback=None, *, loop=None)` | По умолчанию текущий цикл. `loop.add_reader`, а в цикле без него (ProactorEventLoop, Windows) — задача, которая ждёт `sock_recv(sock, 0)` (IOCP завершает его, когда есть данные или конец). `receive()` по готовности сокета, `callback(latest)` на каждый новый снимок. Ошибку `receive` получают ждущие `wait_async`; без них при колбэке — обработчик исключений цикла, без колбэка — следующий `wait_async`. Ошибки колбэка — всегда обработчик цикла. Приём продолжается. Конец канала снимает сокет с цикла |
+| `Subscriber.detach()` | Снять с цикла, сокет открыт; ждущие `wait_async` получают `False` |
 | `closed`, `close()`, `__enter__`/`__exit__` | У обоих концов; `close()` идемпотентен. `fileno()` — у `Subscriber`: ждать несколько сокетов в своём `select`/`selectors`, затем `receive()` |
 
 Очередь у каждого подписчика своя и ограничена: на Linux — `sndbuf` (каждое непрочитанное
@@ -228,6 +253,6 @@ r.get()["vms"].get_many([101, 102], None)   # корень последнего 
 Отличия от канала (§6): нет уведомления о новом снимке (читатель опрашивает `get()`), нет печатей
 (неизменность снимка — на писателе), после падения писателя на POSIX остаются имена.
 
-## 8. Зарезервированные имена (RW, не реализуются в v1)
+## 8. Зарезервированные имена (RW, не реализованы)
 
-`SharedDict`, `SharedList`, `create_rw`, `attach_rw`, `freeze`, `thaw`, модуль `shmobj.abc`.
+`SharedDict`, `SharedList`, `create_rw`, `attach_rw`, `freeze`, `thaw`, модуль `shmobj.abc` — см. [rw.md](rw.md).

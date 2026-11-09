@@ -2,7 +2,7 @@
 
 Сегмент собирается один раз (`dumps`, `create`), читается без копирования (`loads`, `attach`):
 контейнеры приходят прокси `FrozenDict`/`FrozenList`, скаляры — обычными объектами Python.
-Контракт; семантика — doc/spec/02-api.md.
+Контракт; семантика — doc/api.md.
 """
 from collections.abc import Callable, Iterable, Iterator, ItemsView, KeysView, ValuesView
 from typing import Any, Final, TypeAlias, TypeVar, overload
@@ -47,8 +47,14 @@ def loads(buf: ReadableBuffer, *, verify: bool = False) -> Value:
     Прокси держат экспорт буфера: пока они живы, `close()` у `mmap`/`SharedMemory` даёт `BufferError`.
     """
 
-def create(obj: Any, name: str | None = None, *, dedup: bool = True, checksum: bool = True) -> Segment:
-    """Собрать `obj` в новую SharedMemory (`name=None` — имя генерируется). Создатель отвечает за `unlink()`."""
+def create(
+    obj: Any, name: str | None = None, *, dedup: bool = True, checksum: bool = True, unlink_on_close: bool = False
+) -> Segment:
+    """Собрать `obj` в новую SharedMemory (`name=None` — имя генерируется). Создатель отвечает за `unlink()`.
+
+    `unlink_on_close=True` — `close()` (и выход из `with`) удаляет сегмент из ОС; имя, уже удалённое `unlink()`,
+    — без ошибки. Сборщик мусора без `close()` имя не удаляет.
+    """
 
 def attach(name: str, *, verify: bool = False) -> Segment:
     """Подключиться к существующему сегменту по имени; читается только заголовок."""
@@ -76,7 +82,7 @@ class Segment:
         На Windows ничего не делает: сегмент живёт, пока открыт хоть один дескриптор."""
     def __enter__(self) -> Segment: ...
     def __exit__(self, *exc: object) -> None:
-        """`close()`; `unlink()` не вызывается."""
+        """`close()`; `unlink()` — только у `create(..., unlink_on_close=True)`."""
 
 class FrozenDict:
     """Словарь только для чтения поверх сегмента; `collections.abc.Mapping` (через register).

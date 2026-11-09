@@ -1,4 +1,4 @@
-//! Заголовок сегмента (64 байта), doc/spec/03-format.md §1.
+//! Заголовок сегмента (64 байта), doc/format.md §1.
 
 use super::error::{FormatError, Result};
 use super::{read_u32, read_u64};

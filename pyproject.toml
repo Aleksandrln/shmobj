@@ -7,10 +7,32 @@ name = "shmobj"
 requires-python = ">=3.11"
 dynamic = ["version"]
 description = "Read-only dict/list/scalars in shared memory without deserialization"
-classifiers = ["Programming Language :: Rust", "Programming Language :: Python :: Implementation :: CPython"]
+readme = "README.md"
+keywords = ["shared-memory", "multiprocessing", "ipc", "mmap", "zero-copy"]
+license = "MIT OR Apache-2.0"
+license-files = ["LICENSE-MIT", "LICENSE-APACHE"]
+authors = [{ name = "AleksandrLn" }]
+classifiers = [
+    "Development Status :: 4 - Beta",
+    "Intended Audience :: Developers",
+    "Operating System :: POSIX :: Linux",
+    "Operating System :: Microsoft :: Windows",
+    "Operating System :: MacOS",
+    "Programming Language :: Python :: 3",
+    "Programming Language :: Python :: 3 :: Only",
+    "Programming Language :: Python :: Implementation :: CPython",
+    "Programming Language :: Rust",
+    "Topic :: System :: Distributed Computing",
+    "Typing :: Typed",
+]
+
+[project.urls]
+Homepage = "https://github.com/Aleksandrln/shmobj"
+Issues = "https://github.com/Aleksandrln/shmobj/issues"
+Author = "https://github.com/Aleksandrln"
 
 [project.optional-dependencies]
-test = ["pytest", "hypothesis", "pytest-benchmark", "xxhash", "pydevd-pycharm"]
+test = ["pytest", "hypothesis", "xxhash", "pydevd-pycharm"]
 
 [tool.maturin]
 manifest-path = "crates/shmobj-py/Cargo.toml"

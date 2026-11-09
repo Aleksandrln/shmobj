@@ -1,6 +1,7 @@
 """Жизненный цикл SharedMemory: создание, подключение, close/unlink, resource_tracker."""
 from __future__ import annotations
 
+import contextlib
 import os
 import sys
 from multiprocessing import shared_memory
@@ -11,9 +12,9 @@ _TRACK_PARAM = sys.version_info >= (3, 13)
 _POSIX = os.name == "posix"
 
 
-def _segment(shm: shared_memory.SharedMemory, unlink, verify: bool) -> _core.Segment:
+def _segment(shm: shared_memory.SharedMemory, unlink, verify: bool, on_close=None) -> _core.Segment:
     try:
-        return _core.open_segment(shm.buf, name=shm.name, on_close=shm.close, on_unlink=unlink, verify=verify)
+        return _core.open_segment(shm.buf, name=shm.name, on_close=on_close or shm.close, on_unlink=unlink, verify=verify)
     except BaseException:
         shm.close()
         raise
@@ -59,10 +60,22 @@ def unlink_name(name: str) -> None:
         pass
 
 
-def create(obj, name: str | None, *, dedup: bool, checksum: bool, track: bool = True) -> _core.Segment:
+def _closer(shm: shared_memory.SharedMemory, unlink):
+    def close() -> None:
+        shm.close()
+        with contextlib.suppress(FileNotFoundError):  # имя уже удалено: `unlink()` до `close()`
+            unlink()
+
+    return close
+
+
+def create(
+    obj, name: str | None, *, dedup: bool, checksum: bool, track: bool = True, unlink_on_close: bool = False
+) -> _core.Segment:
     """Новая SharedMemory со сборкой `obj` (сразу в неё, без `bytes`); процесс-создатель — владелец сегмента.
 
     `track=False` — имя переживает выход процесса, удаляет его `unlink()`.
+    `unlink_on_close=True` — `close()` удаляет и имя.
     """
     shm = None
 
@@ -78,7 +91,8 @@ def create(obj, name: str | None, *, dedup: bool, checksum: bool, track: bool = 
             shm.close()
             _unlinker(shm, tracked=track)()
         raise
-    return _segment(shm, _unlinker(shm, tracked=track), verify=False)
+    unlink = _unlinker(shm, tracked=track)
+    return _segment(shm, unlink, verify=False, on_close=_closer(shm, unlink) if unlink_on_close else None)
 
 
 def attach(name: str, verify: bool = False) -> _core.Segment:

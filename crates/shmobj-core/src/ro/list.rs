@@ -1,4 +1,4 @@
-//! LIST: заголовок и `len` элементов (doc/spec/03-format.md §5).
+//! LIST: заголовок и `len` элементов (doc/format.md §5).
 
 use crate::format::error::{FormatError, Result};
 use crate::format::slot::Slot;

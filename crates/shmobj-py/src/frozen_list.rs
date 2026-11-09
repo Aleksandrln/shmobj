@@ -1,7 +1,7 @@
 //! `FrozenList` — `collections.abc.Sequence` поверх узла LIST.
 //! Срез — представление `(start, step, len)` над тем же узлом, без копирования.
 
-use pyo3::exceptions::{PyIndexError, PyTypeError, PyValueError};
+use pyo3::exceptions::{PyIndexError, PyOverflowError, PyTypeError, PyValueError};
 use pyo3::prelude::*;
 use pyo3::types::{PyList, PySlice};
 use shmobj_core::{ListView, Seg};
@@ -111,9 +111,13 @@ impl FrozenList {
             };
             return Ok(Bound::new(slf.py(), view)?.into_any());
         }
-        let i: isize = index
-            .extract()
-            .map_err(|_| PyTypeError::new_err("индексы FrozenList должны быть int или slice"))?;
+        let i: isize = index.extract().map_err(|e: PyErr| {
+            if e.is_instance_of::<PyOverflowError>(slf.py()) {
+                PyIndexError::new_err("индекс FrozenList вне диапазона") // как у list: 10**30
+            } else {
+                PyTypeError::new_err("индексы FrozenList должны быть int или slice")
+            }
+        })?;
         let j = me
             .normalize(i)
             .ok_or_else(|| PyIndexError::new_err("индекс FrozenList вне диапазона"))?;

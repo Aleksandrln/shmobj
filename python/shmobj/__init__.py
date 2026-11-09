@@ -44,9 +44,11 @@ def loads(buf: Any, *, verify: bool = False) -> Any:
     return _open_segment(buf, verify=verify).root
 
 
-def create(obj: Any, name: str | None = None, *, dedup: bool = True, checksum: bool = True) -> Segment:
-    """Собрать `obj` в новую SharedMemory. Создатель отвечает за `unlink()`."""
-    return _shm.create(obj, name, dedup=dedup, checksum=checksum)
+def create(
+    obj: Any, name: str | None = None, *, dedup: bool = True, checksum: bool = True, unlink_on_close: bool = False
+) -> Segment:
+    """Собрать `obj` в новую SharedMemory. Создатель отвечает за `unlink()`; `unlink_on_close=True` — его делает `close()`."""
+    return _shm.create(obj, name, dedup=dedup, checksum=checksum, unlink_on_close=unlink_on_close)
 
 
 def attach(name: str, *, verify: bool = False) -> Segment:

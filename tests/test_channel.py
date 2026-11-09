@@ -13,13 +13,14 @@ import pytest
 
 import shmobj
 from shmobj import channel
+from shmobj.channel import _memfd, _named, _sock
 
 needs_channel = pytest.mark.skipif(not channel.SUPPORTED, reason="канал — Linux и Windows")
-needs_memfd = pytest.mark.skipif(not channel._MEMFD, reason="memfd — только Linux")
+needs_memfd = pytest.mark.skipif(not _sock.MEMFD, reason="memfd — только Linux")
 # именованный режим — платформенный на Windows; на Linux его тем же кодом гоняют тесты
-MODES = (["memfd"] if channel._MEMFD else []) + (["named"] if channel.SUPPORTED else [])
-CLASSES = {"memfd": (channel._MemfdPublisher, channel._MemfdSubscriber),
-           "named": (channel._NamedPublisher, channel._NamedSubscriber)}
+MODES = (["memfd"] if _sock.MEMFD else []) + (["named"] if channel.SUPPORTED else [])
+CLASSES = {"memfd": (_memfd.MemfdPublisher, _memfd.MemfdSubscriber),
+           "named": (_named.NamedPublisher, _named.NamedSubscriber)}
 
 
 def _pair(mode):
@@ -42,7 +43,7 @@ def ends(request, mode):
     sub.close()
 
 
-def _memfd(name):
+def _memfd_refs(name):
     """(отображения, дескрипторы) memfd с именем `name` в этом процессе; `mmap` держит копию дескриптора."""
     with open("/proc/self/maps") as maps:
         mappings = sum(f"/memfd:{name} " in line for line in maps)
@@ -57,7 +58,7 @@ def _memfd(name):
 
 def _held(pub, i):
     """Жив ли i-й снимок именованного писателя `pub` (его держит кто-то в этом процессе)."""
-    name = f"{pub._name}-{os.getpid()}-{i}"
+    name = f"{pub._prefix}-{i}"
     if os.name != "nt":  # POSIX: имя удаляется при подтверждении, отображение остаётся
         with open("/proc/self/maps") as maps:
             return any(f"/dev/shm/{name}" in line for line in maps)
@@ -126,7 +127,7 @@ def test_wrong_socket_type(mode):
 
 
 def test_unsupported_platform(monkeypatch):
-    monkeypatch.setattr(channel, "SUPPORTED", False)
+    monkeypatch.setattr(_sock, "SUPPORTED", False)
     with pytest.raises(NotImplementedError):
         channel.socketpair()
 
@@ -156,7 +157,7 @@ def test_asyncio_attach(mode):
             if sub.closed:
                 break
             await asyncio.sleep(0.01)
-        assert sub.closed and sub._reader is None
+        assert sub.closed and sub._receiver is None
         assert sub.latest["i"] == 2
 
     asyncio.run(main())
@@ -173,7 +174,7 @@ def test_close_after_socket_closed_outside(mode):
             sub.attach()
             sub_sock.close()  # чужой код закрыл сокет, не сняв его с цикла
             sub.close()
-            assert sub.closed and sub._reader is None
+            assert sub.closed and sub._receiver is None
 
     asyncio.run(main())
 
@@ -181,6 +182,7 @@ def test_close_after_socket_closed_outside(mode):
 _CHILD = """
 import os, socket, sys
 from shmobj import channel
+from shmobj.channel import _memfd, _named, _sock
 pub = channel.Publisher(socket.socket(fileno=int(sys.argv[1])))
 assert pub.publish({"pid": os.getpid(), "data": list(range(1000))})
 sys.stdin.read()  # Windows: снимок живёт, пока писатель его держит
@@ -315,7 +317,7 @@ def test_closed_publisher_rejects(mode):
 
 @needs_channel
 def test_listen_connect(tmp_path):
-    address = str(tmp_path / "snap.sock") if channel._MEMFD else ("127.0.0.1", 0)
+    address = str(tmp_path / "snap.sock") if _sock.MEMFD else ("127.0.0.1", 0)
     with channel.listen(address) as listener, channel.Publisher() as pub:
         pub.publish({"n": 1})
         with channel.Subscriber(channel.connect(listener.getsockname())) as sub:
@@ -325,6 +327,66 @@ def test_listen_connect(tmp_path):
                     break
                 time.sleep(0.01)
             assert sub.latest["n"] == 1
+
+
+def _free_address(tmp_path):
+    """Адрес, который никто не слушает; Windows — порт, только что свободный."""
+    if _sock.MEMFD:
+        return str(tmp_path / "snap.sock")
+    with socket.socket() as probe:
+        probe.bind(("127.0.0.1", 0))
+        return probe.getsockname()
+
+
+def _listen_later(address, listeners):
+    timer = threading.Timer(0.3, lambda: listeners.append(channel.listen(address)))
+    timer.start()
+    return timer
+
+
+@needs_channel
+def test_connect_wait_writer(tmp_path):
+    address = _free_address(tmp_path)
+    with pytest.raises(_sock.NO_WRITER):
+        channel.connect(address)
+    start = time.monotonic()
+    with pytest.raises(_sock.NO_WRITER):
+        channel.connect(address, wait_writer=0.3)
+    assert time.monotonic() - start >= 0.3
+    listeners = []
+    timer = _listen_later(address, listeners)
+    try:
+        with channel.connect(address, wait_writer=True):  # писателя ещё нет — ждёт, пока он не начнёт слушать
+            assert listeners
+    finally:
+        timer.join()
+        for listener in listeners:
+            listener.close()
+
+
+@needs_channel
+def test_connect_async_wait_writer(tmp_path):
+    address = _free_address(tmp_path)
+
+    async def main():
+        waiting = asyncio.create_task(channel.connect_async(address, wait_writer=True))
+        await asyncio.sleep(0.3)
+        waiting.cancel()  # ожидание писателя отменяется вместе с задачей
+        with pytest.raises(asyncio.CancelledError):
+            await waiting
+        with pytest.raises(_sock.NO_WRITER):
+            await channel.connect_async(address, wait_writer=0.1)
+        listeners = []
+        timer = _listen_later(address, listeners)
+        try:
+            with await channel.connect_async(address, wait_writer=True):
+                assert listeners
+        finally:
+            timer.join()
+            for listener in listeners:
+                listener.close()
+
+    asyncio.run(main())
 
 
 def _listen(mode, tmp_path):
@@ -362,15 +424,73 @@ def test_wait(ends):
 
 
 @needs_channel
-def test_wait_after_attach(ends):
+def test_wait_async(ends):
+    pub, sub = ends
+
+    async def main():
+        loop = asyncio.get_running_loop()
+        started = time.monotonic()
+        assert not await sub.wait_async(0.1)  # снимков нет — истёк срок
+        assert time.monotonic() - started >= 0.1
+        loop.call_later(0.1, pub.publish, {"n": 1})
+        assert await sub.wait_async(5) and sub.latest["n"] == 1  # цикл не заблокирован: call_later сработал
+        pub.publish({"n": 2})
+        pub.publish({"n": 3})
+        assert await sub.wait_async(0) and sub.latest["n"] == 3  # готовый снимок — последний из очереди
+        task = asyncio.create_task(sub.wait_async())
+        await asyncio.sleep(0.05)
+        task.cancel()
+        with pytest.raises(asyncio.CancelledError):
+            await task
+        loop.call_later(0.1, pub.close)
+        assert not await sub.wait_async() and sub.closed  # конец канала будит ожидание без срока
+        assert sub.latest["n"] == 3
+
+    asyncio.run(main())
+
+
+@needs_channel
+def test_wait_with_loop_receiver(ends):
     _pub, sub = ends
 
     async def main():
         sub.attach()
-        with pytest.raises(ValueError):
+        with pytest.raises(ValueError):  # сокет читает цикл
             sub.wait(0)
         sub.detach()
         assert not sub.wait(0)
+        assert not await sub.wait_async(0)  # включает приём в цикле
+        with pytest.raises(ValueError):
+            sub.wait(0)
+
+    asyncio.run(main())
+
+
+@needs_channel
+def test_wait_async_with_attach(ends):
+    pub, sub = ends
+
+    async def main():
+        loop = asyncio.get_running_loop()
+        got = []
+        sub.attach(lambda root: got.append(root["n"]))
+        loop.call_later(0.05, pub.publish, {"n": 1})
+        first, second = await asyncio.gather(sub.wait_async(5), sub.wait_async(5))
+        assert first and second and got == [1]  # один снимок будит всех ждущих и колбэк
+        assert not await sub.wait_async(0)  # с прошлого вызова снимков не было
+        pub.publish({"n": 2})
+        await asyncio.sleep(0.05)  # снимок принял колбэк, пока wait_async не ждал
+        assert got == [1, 2] and await sub.wait_async(0) and sub.latest["n"] == 2
+
+        task = asyncio.create_task(sub.wait_async())
+        await asyncio.sleep(0.05)
+        sub.detach()
+        assert not await task  # приём снят
+
+        sub.attach(lambda root: got.append(root["n"]))
+        loop.call_later(0.05, pub.close)
+        assert not await sub.wait_async() and sub.closed  # конец канала будит ожидание
+        assert got == [1, 2]
 
     asyncio.run(main())
 
@@ -409,6 +529,24 @@ def test_accept_in_thread(mode, tmp_path):
 
 
 @needs_channel
+def test_accept_last_subscriber_gone_no_error(mode, tmp_path):
+    pub_cls, sub_cls = CLASSES[mode]
+    with pub_cls(name=f"shmobj-test-{os.getpid()}-gone-{mode}") as pub:
+        address = pub.accept_in_thread(_listen(mode, tmp_path))
+        with sub_cls(_connect(mode, address)) as sub:
+            pub.publish({"n": 1})
+            _wait_receive(sub, 1)
+        for _ in range(200):  # ушёл последний: без BrokenPipeError, пока идёт приём
+            pub.publish({"n": 2})
+            if pub.subscribers == 0:
+                break
+            time.sleep(0.01)
+        assert pub.subscribers == 0
+        with sub_cls(_connect(mode, address)) as sub:
+            _wait_receive(sub, 2)  # новый подписчик получает последний снимок
+
+
+@needs_channel
 def test_accept_in_loop(mode, tmp_path):
     pub_cls, sub_cls = CLASSES[mode]
 
@@ -437,11 +575,11 @@ def test_accept_in_loop(mode, tmp_path):
 
 @needs_channel
 def test_named_waits_for_every_subscriber():
-    pub = channel._NamedPublisher(name=f"shmobj-test-{os.getpid()}-acks")
+    pub = _named.NamedPublisher(name=f"shmobj-test-{os.getpid()}-acks")
     pairs = [socket.socketpair() for _ in range(2)]
     for pub_sock, _ in pairs:
         pub.add(pub_sock)
-    a, b = (channel._NamedSubscriber(sub_sock) for _, sub_sock in pairs)
+    a, b = (_named.NamedSubscriber(sub_sock) for _, sub_sock in pairs)
     try:
         pub.publish([0])
         a.receive()
@@ -464,8 +602,8 @@ def test_named_waits_for_every_subscriber():
 @pytest.fixture
 def memfd_ends(request):
     pub_sock, sub_sock = channel.socketpair()
-    pub = channel._MemfdPublisher(pub_sock, name=f"shmobj-test-{request.node.name}")
-    sub = channel._MemfdSubscriber(sub_sock)
+    pub = _memfd.MemfdPublisher(pub_sock, name=f"shmobj-test-{request.node.name}")
+    sub = _memfd.MemfdSubscriber(sub_sock)
     yield pub, sub
     pub.close()
     sub.close()
@@ -478,7 +616,7 @@ def test_memfd_queued_are_closed(memfd_ends):
         assert pub.publish([i])
     assert sub.receive()
     assert list(sub.latest) == [4]
-    assert _memfd(pub._name) == (1, 2)  # отображение читателя и дескриптор последнего снимка у писателя
+    assert _memfd_refs(pub._name) == (1, 2)  # отображение читателя и дескриптор последнего снимка у писателя
 
 
 @needs_memfd
@@ -487,14 +625,14 @@ def test_memfd_previous_snapshot_is_released(memfd_ends):
     for i in range(3):
         pub.publish([i])
         sub.receive()
-    assert _memfd(pub._name) == (1, 2)  # писатель держит только последний
+    assert _memfd_refs(pub._name) == (1, 2)  # писатель держит только последний
     held = sub.latest
     pub.publish([3])
     sub.receive()
-    assert _memfd(pub._name) == (2, 3)  # прокси прежнего снимка держит его отображение
+    assert _memfd_refs(pub._name) == (2, 3)  # прокси прежнего снимка держит его отображение
     assert list(held) == [2]
     del held
-    assert _memfd(pub._name) == (1, 2)
+    assert _memfd_refs(pub._name) == (1, 2)
 
 
 @needs_memfd
@@ -512,21 +650,60 @@ def test_memfd_snapshot_is_sealed(memfd_ends):
             os.close(fd)
 
 
+def _send_unsealed(pub, obj):
+    """Снимок в memfd без печатей — читатель его отвергает."""
+    fd = os.memfd_create(pub._name, os.MFD_CLOEXEC)
+    try:
+        os.write(fd, shmobj.dumps(obj))
+        socket.send_fds(pub._subs[0], [b"S"], [fd])
+    finally:
+        os.close(fd)
+
+
+@needs_memfd
+def test_wait_async_receive_error(memfd_ends):
+    pub, sub = memfd_ends
+
+    async def main():
+        loop = asyncio.get_running_loop()
+        handled = []
+        loop.set_exception_handler(lambda _loop, context: handled.append(context["exception"]))
+        pub.publish([1])
+        assert await sub.wait_async(5)  # приём включил wait_async
+        loop.call_later(0.05, _send_unsealed, pub, [2])
+        with pytest.raises(ValueError, match="не запечатан"):  # ждущему — с трейсбеком приёма
+            await sub.wait_async(5)
+        _send_unsealed(pub, [3])
+        await asyncio.sleep(0.05)  # принял цикл, пока никто не ждал
+        with pytest.raises(ValueError, match="не запечатан"):
+            await sub.wait_async(5)
+        assert not await sub.wait_async(0)
+        _send_unsealed(pub, [4])
+        await asyncio.sleep(0.05)
+        sub.detach()  # не забранная до снятия приёма — обработчику цикла
+        assert [type(e) for e in handled] == [ValueError]
+
+        sub.attach(lambda root: 1 / 0)  # приём включил attach
+        _send_unsealed(pub, [5])
+        await asyncio.sleep(0.05)  # отдельно: из очереди receive берёт только последний
+        pub.publish([6])
+        await asyncio.sleep(0.05)
+        assert [type(e) for e in handled] == [ValueError] * 2 + [ZeroDivisionError]  # ждущих нет — обработчику цикла
+        assert list(sub.latest) == [6]
+
+    asyncio.run(main())
+
+
 @needs_memfd
 def test_memfd_unsealed_snapshot_is_rejected(memfd_ends):
     pub, sub = memfd_ends
     pub.publish([1])
     sub.receive()
-    fd = os.memfd_create(pub._name, os.MFD_CLOEXEC)
-    try:
-        os.write(fd, shmobj.dumps([2]))
-        socket.send_fds(pub._subs[0], [b"S"], [fd])
-    finally:
-        os.close(fd)
+    _send_unsealed(pub, [2])
     with pytest.raises(ValueError, match="не запечатан"):
         sub.receive()
     assert list(sub.latest) == [1]
-    assert _memfd(pub._name) == (1, 2)
+    assert _memfd_refs(pub._name) == (1, 2)
 
 
 @needs_memfd
@@ -544,11 +721,25 @@ def test_memfd_publisher_close_ends_channel(memfd_ends):
 @pytest.fixture
 def named_ends():
     pub_sock, sub_sock = socket.socketpair()
-    pub = channel._NamedPublisher(pub_sock, name=f"shmobj-test-{os.getpid()}")
-    sub = channel._NamedSubscriber(sub_sock)
+    pub = _named.NamedPublisher(pub_sock, name=f"shmobj-test-{os.getpid()}")
+    sub = _named.NamedSubscriber(sub_sock)
     yield pub, sub
     pub.close()
     sub.close()
+
+
+@needs_channel
+def test_named_publishers_same_name():
+    pairs = [socket.socketpair() for _ in range(2)]
+    pubs = [_named.NamedPublisher(pub_sock, name=f"shmobj-test-{os.getpid()}") for pub_sock, _ in pairs]
+    subs = [_named.NamedSubscriber(sub_sock) for _, sub_sock in pairs]
+    try:
+        for i, (pub, sub) in enumerate(zip(pubs, subs)):
+            pub.publish([i])
+            assert sub.receive() and list(sub.latest) == [i]
+    finally:
+        for end in pubs + subs:
+            end.close()
 
 
 @needs_channel
@@ -559,7 +750,7 @@ def test_named_ack_releases_writer_copies(named_ends):
     sub.receive()
     assert [_held(pub, i) for i in range(3)] == [True] * 3  # подтверждения ещё не прочитаны
     pub.publish([3])  # читает подтверждения 0–2
-    assert list(pub._subs[0].pending) == [f"{pub._name}-{os.getpid()}-3".encode()]
+    assert list(pub._subs[0].pending) == [f"{pub._prefix}-3".encode()]
     assert [_held(pub, i) for i in range(4)] == [False, False, True, True]  # 2 — у читателя
     sub.receive()
     pub.publish([4])

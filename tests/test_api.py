@@ -1,4 +1,4 @@
-"""Семантика API (doc/spec/02-api.md)."""
+"""Семантика API (doc/api.md)."""
 import math
 import pickle
 from collections.abc import Mapping, Sequence
@@ -65,6 +65,10 @@ def test_list_indexing_and_slices():
     assert fl[-1] == 99 and len(fl) == 100
     with pytest.raises(IndexError):
         fl[100]
+    with pytest.raises(IndexError):  # как у list: не влезает в isize
+        fl[10**30]
+    with pytest.raises(TypeError):
+        fl["0"]
     for s in [slice(10, 20, 3), slice(None, None, -1), slice(-5, None), slice(90, 10, -7), slice(5, 5)]:
         assert list(fl[s]) == src[s]
     assert list(fl[::-1][::3]) == src[::-1][::3]

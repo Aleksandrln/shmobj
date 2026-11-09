@@ -4,14 +4,14 @@
 Linux: снимок собирается в memfd, запечатывается и уходит дескриптором по AF_UNIX SOCK_SEQPACKET.
 Windows: снимок — именованная SharedMemory, по loopback TCP идёт имя, читатель подтверждает приём.
 Читатель берёт из очереди последний. После падения любой из сторон в ОС ничего не остаётся.
-Контракт; семантика — doc/spec/02-api.md §6.
+Контракт; семантика — doc/api.md §6.
 """
 import asyncio
 import socket
 from collections.abc import Callable
 from typing import Any, Final
 
-from . import Value
+from .. import Value
 
 SUPPORTED: Final[bool]
 """Linux (CPython с os.memfd_create) или Windows. Иначе (macOS) конструкторы,
@@ -32,8 +32,14 @@ def listen(address: Any, backlog: int = 16) -> socket.socket:
     AF_UNIX SOCK_SEQPACKET (файл не должен существовать; `"\\0имя"` — абстрактный, без файла).
     Windows: `(host, port)` TCP, порт 0 — свободный, узнать — `getsockname()`."""
 
-def connect(address: Any) -> socket.socket:
-    """Сокет читателя, подключённый к `listen(address)` писателя: в `Subscriber`."""
+def connect(address: Any, *, wait_writer: bool | float = False) -> socket.socket:
+    """Сокет читателя, подключённый к `listen(address)` писателя: в `Subscriber`.
+    Адрес никто не слушает (`ConnectionRefusedError`, `FileNotFoundError`): `wait_writer=False` — исключение
+    сразу, `True` — ждать писателя без срока, число — не дольше стольких секунд, затем то же исключение.
+    Ждёт, блокируя поток; в asyncio — `connect_async`."""
+
+async def connect_async(address: Any, *, wait_writer: bool | float = False) -> socket.socket:
+    """`connect` в текущем цикле asyncio: ожидание писателя не блокирует цикл и отменяется вместе с задачей."""
 
 class Publisher:
     """Писатель: один снимок на всех подписчиков. Владеет их сокетами: переводит в неблокирующий
@@ -42,7 +48,7 @@ class Publisher:
         """`sock` — первый подписчик (`add`). Linux: `sndbuf` — SO_SNDBUF сокета каждого подписчика,
         ограничивает его очередь непрочитанных снимков; `name` — имя memfd (видно в `/proc/<pid>/maps`).
         Windows: `sndbuf` не используется, очередь — 4 неподтверждённых снимка на подписчика; `name` —
-        префикс имён SharedMemory (`<name>-<pid>-<номер>`)."""
+        префикс имён SharedMemory (`<name>-<pid>-<писатель>-<номер>`)."""
     def add(self, sock: socket.socket) -> None:
         """Подписать сокет; последний опубликованный снимок уходит ему сразу. Писатель закрыт — `ValueError`."""
     def accept_in_thread(self, listener: socket.socket) -> Any:
@@ -61,7 +67,8 @@ class Publisher:
     def publish(self, obj: object, *, dedup: bool = True, checksum: bool = True) -> bool:
         """Собрать снимок `obj` один раз и отправить всем подписчикам, не блокируя. False — хотя бы
         у одного очередь полна, ему снимок пропущен. Снимок остаётся последним для следующих `add`,
-        в том числе без подписчиков. Последний подписчик закрыл канал — `BrokenPipeError`.
+        в том числе без подписчиков. Последний подписчик закрыл канал — `BrokenPipeError`; при приёме
+        подключений (`accept_in_thread` / `accept_in_loop`) — без ошибки, следующий подписчик получит последний снимок.
         Писатель закрыт — `ValueError`."""
     @property
     def closed(self) -> bool: ...
@@ -86,16 +93,27 @@ class Subscriber:
     def wait(self, timeout: float | None = None) -> bool:
         """Ждать нового снимка, блокируя поток (сон в `selectors`, без опроса): True — `latest` сменился;
         False — истёк `timeout` (None — без срока) или канал закрыт (`closed`). Исключения — как у
-        `receive`. После `attach` (до `detach`) — `ValueError`."""
+        `receive`. Пока сокет читает цикл asyncio (`attach`, `wait_async`; до `detach`) — `ValueError`."""
+    async def wait_async(self, timeout: float | None = None) -> bool:
+        """`wait` для asyncio: ждать нового снимка, не блокируя цикл. True — `latest` сменился с прошлого
+        `wait_async` (снимок мог прийти и между вызовами); False — истёк `timeout` (None — без срока), канал
+        закрыт (`closed`) или приём снят `detach`. Отменяется вместе с задачей.
+
+        Сокет читает приём `attach`: без него первый вызов включает приём без колбэка. Работает вместе с
+        `attach` и в нескольких задачах сразу — один снимок будит всех. Ошибка приёма (как у `receive`)
+        поднимается в ждущих; если никто не ждал и колбэка нет — в следующем вызове (не забранная до `detach` или
+        конца канала — в обработчике исключений цикла).
+        Приём в другом цикле — `ValueError`."""
     def attach(self, callback: Callable[[Value], None] | None = None, *,
                loop: asyncio.AbstractEventLoop | None = None) -> None:
         """Принимать снимки в цикле asyncio (`loop` — по умолчанию текущий): `callback(latest)` на каждый новый.
         `loop.add_reader`; цикл без него (ProactorEventLoop) — задача с `sock_recv(sock, 0)`.
 
-        Исключения `receive` и `callback` уходят в обработчик исключений цикла; приём продолжается.
+        Ошибку `receive` получают ждущие `wait_async`; без них при `callback` — обработчик исключений цикла (как и
+        ошибки `callback`), без `callback` — следующий `wait_async`. Приём продолжается.
         """
     def detach(self) -> None:
-        """Снять сокет с цикла asyncio; сокет остаётся открытым."""
+        """Снять сокет с цикла asyncio; сокет остаётся открытым, ждущие `wait_async` получают False."""
     def fileno(self) -> int: ...
     @property
     def closed(self) -> bool: ...
