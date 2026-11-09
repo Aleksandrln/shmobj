@@ -32,3 +32,5 @@ if __name__ == "__main__":
         print(f"создатель: {path}, {os.path.getsize(path)} байт")
         with multiprocessing.Pool(4, initializer=init, initargs=(path,)) as pool:
             print(f"сумма score: {sum(pool.map(score, range(len(data['users'])), chunksize=10_000))}")
+            pool.close()  # выход из with — terminate(): воркер, не закончивший init, был бы убит
+            pool.join()
