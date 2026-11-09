@@ -66,14 +66,14 @@ pytest                            # tests/: golden, сверка с эталон
 2. `reference/shmobj_ref.py` — исполняемая трактовка формата: сборка, чтение, `get_many`, `iter_*`, `materialize`,
    `validate`. Расхождение с `format.md` — дефект обоих, решение записывается в `format.md`; формат меняется только в
    обоих сразу.
-3. `python/shmobj/__init__.pyi`, `channel.pyi`, `latest.pyi` — контракт API; [api.md](api.md) — семантика. Жизненный
+3. `python/shmobj/__init__.pyi`, `channel/__init__.pyi`, `latest.pyi` — контракт API; [api.md](api.md) — семантика. Жизненный
    цикл `Segment`, `repr`, отказ `pickle`, представления `keys/values/items`, канал и `latest` есть только там.
 
 ## Порядок в модуле
 
 Константы — сразу после импортов. Функция или метод стоит над тем, что её вызывает:
 вызываемая из одного места — прямо над ним, общая — над первым вызовом, несколько — в порядке
-вызова. Образец — `python/shmobj/channel.py`.
+вызова. Образец — `python/shmobj/channel/`.
 
 ## Раскладка
 
@@ -81,7 +81,7 @@ pytest                            # tests/: golden, сверка с эталон
 |---|---|
 | `crates/shmobj-core` | Формат без Python и без `unsafe`: `format/` (общее с будущим RW), `ro/` (чтение, сборка, `validate`) |
 | `crates/shmobj-py` | cdylib `shmobj._core` (PyO3): `Segment`, прокси, итераторы, сборка из Python-объектов; весь `unsafe` здесь |
-| `python/shmobj` | Пакет: реэкспорт `_core`, регистрация в ABC, `create`/`attach` поверх `SharedMemory` (`_shm.py`), канал снимков (`channel.py`), последний снимок по имени (`latest.py`), `.pyi` |
+| `python/shmobj` | Пакет: реэкспорт `_core`, регистрация в ABC, `create`/`attach` поверх `SharedMemory` (`_shm.py`), канал снимков (`channel/`), последний снимок по имени (`latest.py`), `.pyi` |
 | `tests/` | pytest; `conftest.py` добавляет `reference/` и `golden/` в `sys.path` |
 | `examples/` | Рабочие скрипты с обвязкой ([examples/README.md](../examples/README.md)) — та же механика, что в примерах README; их прогоняет `tests/test_examples.py` |
 | `reference/`, `golden/` | Эталон формата на Python (`pytest reference/`) и эталонные сегменты с входными данными (`cases.py`) |

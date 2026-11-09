@@ -13,13 +13,14 @@ import pytest
 
 import shmobj
 from shmobj import channel
+from shmobj.channel import _memfd, _named, _sock
 
 needs_channel = pytest.mark.skipif(not channel.SUPPORTED, reason="канал — Linux и Windows")
-needs_memfd = pytest.mark.skipif(not channel._MEMFD, reason="memfd — только Linux")
+needs_memfd = pytest.mark.skipif(not _sock.MEMFD, reason="memfd — только Linux")
 # именованный режим — платформенный на Windows; на Linux его тем же кодом гоняют тесты
-MODES = (["memfd"] if channel._MEMFD else []) + (["named"] if channel.SUPPORTED else [])
-CLASSES = {"memfd": (channel._MemfdPublisher, channel._MemfdSubscriber),
-           "named": (channel._NamedPublisher, channel._NamedSubscriber)}
+MODES = (["memfd"] if _sock.MEMFD else []) + (["named"] if channel.SUPPORTED else [])
+CLASSES = {"memfd": (_memfd.MemfdPublisher, _memfd.MemfdSubscriber),
+           "named": (_named.NamedPublisher, _named.NamedSubscriber)}
 
 
 def _pair(mode):
@@ -42,7 +43,7 @@ def ends(request, mode):
     sub.close()
 
 
-def _memfd(name):
+def _memfd_refs(name):
     """(отображения, дескрипторы) memfd с именем `name` в этом процессе; `mmap` держит копию дескриптора."""
     with open("/proc/self/maps") as maps:
         mappings = sum(f"/memfd:{name} " in line for line in maps)
@@ -126,7 +127,7 @@ def test_wrong_socket_type(mode):
 
 
 def test_unsupported_platform(monkeypatch):
-    monkeypatch.setattr(channel, "SUPPORTED", False)
+    monkeypatch.setattr(_sock, "SUPPORTED", False)
     with pytest.raises(NotImplementedError):
         channel.socketpair()
 
@@ -181,6 +182,7 @@ def test_close_after_socket_closed_outside(mode):
 _CHILD = """
 import os, socket, sys
 from shmobj import channel
+from shmobj.channel import _memfd, _named, _sock
 pub = channel.Publisher(socket.socket(fileno=int(sys.argv[1])))
 assert pub.publish({"pid": os.getpid(), "data": list(range(1000))})
 sys.stdin.read()  # Windows: снимок живёт, пока писатель его держит
@@ -315,7 +317,7 @@ def test_closed_publisher_rejects(mode):
 
 @needs_channel
 def test_listen_connect(tmp_path):
-    address = str(tmp_path / "snap.sock") if channel._MEMFD else ("127.0.0.1", 0)
+    address = str(tmp_path / "snap.sock") if _sock.MEMFD else ("127.0.0.1", 0)
     with channel.listen(address) as listener, channel.Publisher() as pub:
         pub.publish({"n": 1})
         with channel.Subscriber(channel.connect(listener.getsockname())) as sub:
@@ -329,7 +331,7 @@ def test_listen_connect(tmp_path):
 
 def _free_address(tmp_path):
     """Адрес, который никто не слушает; Windows — порт, только что свободный."""
-    if channel._MEMFD:
+    if _sock.MEMFD:
         return str(tmp_path / "snap.sock")
     with socket.socket() as probe:
         probe.bind(("127.0.0.1", 0))
@@ -345,10 +347,10 @@ def _listen_later(address, listeners):
 @needs_channel
 def test_connect_wait_writer(tmp_path):
     address = _free_address(tmp_path)
-    with pytest.raises(channel._NO_WRITER):
+    with pytest.raises(_sock.NO_WRITER):
         channel.connect(address)
     start = time.monotonic()
-    with pytest.raises(channel._NO_WRITER):
+    with pytest.raises(_sock.NO_WRITER):
         channel.connect(address, wait_writer=0.3)
     assert time.monotonic() - start >= 0.3
     listeners = []
@@ -372,7 +374,7 @@ def test_connect_async_wait_writer(tmp_path):
         waiting.cancel()  # ожидание писателя отменяется вместе с задачей
         with pytest.raises(asyncio.CancelledError):
             await waiting
-        with pytest.raises(channel._NO_WRITER):
+        with pytest.raises(_sock.NO_WRITER):
             await channel.connect_async(address, wait_writer=0.1)
         listeners = []
         timer = _listen_later(address, listeners)
@@ -573,11 +575,11 @@ def test_accept_in_loop(mode, tmp_path):
 
 @needs_channel
 def test_named_waits_for_every_subscriber():
-    pub = channel._NamedPublisher(name=f"shmobj-test-{os.getpid()}-acks")
+    pub = _named.NamedPublisher(name=f"shmobj-test-{os.getpid()}-acks")
     pairs = [socket.socketpair() for _ in range(2)]
     for pub_sock, _ in pairs:
         pub.add(pub_sock)
-    a, b = (channel._NamedSubscriber(sub_sock) for _, sub_sock in pairs)
+    a, b = (_named.NamedSubscriber(sub_sock) for _, sub_sock in pairs)
     try:
         pub.publish([0])
         a.receive()
@@ -600,8 +602,8 @@ def test_named_waits_for_every_subscriber():
 @pytest.fixture
 def memfd_ends(request):
     pub_sock, sub_sock = channel.socketpair()
-    pub = channel._MemfdPublisher(pub_sock, name=f"shmobj-test-{request.node.name}")
-    sub = channel._MemfdSubscriber(sub_sock)
+    pub = _memfd.MemfdPublisher(pub_sock, name=f"shmobj-test-{request.node.name}")
+    sub = _memfd.MemfdSubscriber(sub_sock)
     yield pub, sub
     pub.close()
     sub.close()
@@ -614,7 +616,7 @@ def test_memfd_queued_are_closed(memfd_ends):
         assert pub.publish([i])
     assert sub.receive()
     assert list(sub.latest) == [4]
-    assert _memfd(pub._name) == (1, 2)  # отображение читателя и дескриптор последнего снимка у писателя
+    assert _memfd_refs(pub._name) == (1, 2)  # отображение читателя и дескриптор последнего снимка у писателя
 
 
 @needs_memfd
@@ -623,14 +625,14 @@ def test_memfd_previous_snapshot_is_released(memfd_ends):
     for i in range(3):
         pub.publish([i])
         sub.receive()
-    assert _memfd(pub._name) == (1, 2)  # писатель держит только последний
+    assert _memfd_refs(pub._name) == (1, 2)  # писатель держит только последний
     held = sub.latest
     pub.publish([3])
     sub.receive()
-    assert _memfd(pub._name) == (2, 3)  # прокси прежнего снимка держит его отображение
+    assert _memfd_refs(pub._name) == (2, 3)  # прокси прежнего снимка держит его отображение
     assert list(held) == [2]
     del held
-    assert _memfd(pub._name) == (1, 2)
+    assert _memfd_refs(pub._name) == (1, 2)
 
 
 @needs_memfd
@@ -701,7 +703,7 @@ def test_memfd_unsealed_snapshot_is_rejected(memfd_ends):
     with pytest.raises(ValueError, match="не запечатан"):
         sub.receive()
     assert list(sub.latest) == [1]
-    assert _memfd(pub._name) == (1, 2)
+    assert _memfd_refs(pub._name) == (1, 2)
 
 
 @needs_memfd
@@ -719,8 +721,8 @@ def test_memfd_publisher_close_ends_channel(memfd_ends):
 @pytest.fixture
 def named_ends():
     pub_sock, sub_sock = socket.socketpair()
-    pub = channel._NamedPublisher(pub_sock, name=f"shmobj-test-{os.getpid()}")
-    sub = channel._NamedSubscriber(sub_sock)
+    pub = _named.NamedPublisher(pub_sock, name=f"shmobj-test-{os.getpid()}")
+    sub = _named.NamedSubscriber(sub_sock)
     yield pub, sub
     pub.close()
     sub.close()

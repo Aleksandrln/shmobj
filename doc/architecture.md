@@ -33,7 +33,13 @@ crates/shmobj-py/src/
 python/shmobj/
   __init__.py       # реэкспорт _core, регистрация в Mapping/Sequence
   _shm.py           # SharedMemory и resource_tracker
-  channel.py        # канал снимков: memfd + SCM_RIGHTS (Linux), именованные снимки (Windows)
+  channel/          # канал снимков
+    __init__.py     #   публичный API, выбор протокола по платформе
+    _sock.py        #   платформа, сокеты, подключение с ожиданием писателя
+    _publisher.py, _subscriber.py   # общее у писателей и читателей, без asyncio
+    _memfd.py       #   Linux: memfd + SCM_RIGHTS
+    _named.py       #   Windows: именованные снимки с подтверждением
+    _aio.py         #   asyncio: connect_async, приём подключений и снимков в цикле
   latest.py         # последний снимок по имени
 python/pydevd_plugins/extensions/pydevd_plugin_shmobj.py   # прокси в отладчике PyCharm/VS Code
 ```

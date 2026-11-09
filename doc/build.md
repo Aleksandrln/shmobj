@@ -7,10 +7,10 @@
 ```
 shmobj/__init__.py       # реэкспорт, create/attach
 shmobj/_shm.py           # SharedMemory, resource_tracker
-shmobj/channel.py        # канал снимков (Linux, Windows)
+shmobj/channel/          # канал снимков (Linux, Windows): __init__.py и модули _*.py
 shmobj/latest.py         # последний снимок по имени (любая ОС)
 shmobj/_core.abi3.so     # скомпилированные shmobj-core + shmobj-py (на Windows — _core.pyd)
-shmobj/__init__.pyi, channel.pyi, latest.pyi, py.typed   # типы и докстринги для IDE
+shmobj/__init__.pyi, channel/__init__.pyi, latest.pyi, py.typed   # типы и докстринги для IDE
 pydevd_plugins/extensions/pydevd_plugin_shmobj.py   # прокси в отладчике PyCharm/VS Code
 ```
 

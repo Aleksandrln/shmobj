@@ -1,7 +1,7 @@
 # Python API
 
 Справочник: семантика, ошибки, устройство канала и `latest`. Контракт с типами — `python/shmobj/__init__.pyi`,
-`channel.pyi`, `latest.pyi`; руководство с примерами — [usage.md](usage.md).
+`channel/__init__.pyi`, `latest.pyi`; руководство с примерами — [usage.md](usage.md).
 
 ## 1. Модуль
 
@@ -123,7 +123,7 @@ with shmobj.attach(name) as seg:
 
 Один писатель отдаёт снимки целиком одному или нескольким читателям; читателю нужен только
 последний. Снимок собирается один раз на всех подписчиков. Контракт с типами:
-`python/shmobj/channel.pyi`.
+`python/shmobj/channel/__init__.pyi`.
 
 ```python
 pub_sock, sub_sock = shmobj.channel.socketpair()     # pub_sock — в дочерний процесс: spawn_kwargs(pub_sock)
