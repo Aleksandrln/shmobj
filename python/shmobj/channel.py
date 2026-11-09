@@ -95,16 +95,23 @@ def listen(address: Any, backlog: int = 16) -> socket.socket:
     return sock
 
 
-def connect(address: Any) -> socket.socket:
-    """Сокет читателя, подключённый к `listen(address)` писателя: в `Subscriber`."""
+def connect(address: Any, *, retry: float | None = None) -> socket.socket:
+    """Сокет читателя, подключённый к `listen(address)` писателя: в `Subscriber`.
+    `retry` — пока писатель не слушает адрес, повторять каждые `retry` секунд вместо исключения."""
     _require()
-    sock = socket.socket(socket.AF_UNIX, socket.SOCK_SEQPACKET) if _MEMFD else socket.socket()
-    try:
-        sock.connect(address)
-    except BaseException:
-        sock.close()
-        raise
-    return sock
+    while True:
+        sock = socket.socket(socket.AF_UNIX, socket.SOCK_SEQPACKET) if _MEMFD else socket.socket()
+        try:
+            sock.connect(address)
+            return sock
+        except (ConnectionRefusedError, FileNotFoundError):  # нет слушающего сокета или файла сокета
+            sock.close()
+            if retry is None:
+                raise
+        except BaseException:
+            sock.close()
+            raise
+        time.sleep(retry)
 
 
 def _own(sock: socket.socket, sock_type: str) -> socket.socket:

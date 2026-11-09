@@ -327,6 +327,23 @@ def test_listen_connect(tmp_path):
             assert sub.latest["n"] == 1
 
 
+@needs_channel
+def test_connect_retry(tmp_path):
+    address = str(tmp_path / "snap.sock") if channel._MEMFD else ("127.0.0.1", 50557)
+    with pytest.raises((ConnectionRefusedError, FileNotFoundError)):
+        channel.connect(address)
+    listeners = []
+    timer = threading.Timer(0.3, lambda: listeners.append(channel.listen(address)))
+    timer.start()
+    try:
+        with channel.connect(address, retry=0.05):  # писателя ещё нет — ждёт, пока он не начнёт слушать
+            assert listeners
+    finally:
+        timer.join()
+        for listener in listeners:
+            listener.close()
+
+
 def _listen(mode, tmp_path):
     if mode == "memfd":
         return channel.listen(str(tmp_path / "snap.sock"))

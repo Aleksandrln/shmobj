@@ -149,7 +149,7 @@ sub.latest["vms"].get_many([101, 102], None)         # корень послед
 | `SUPPORTED: bool` | Linux (`sys.platform`; CPython с `os.memfd_create`) или Windows. Иначе (macOS) конструкторы, `socketpair()` и `spawn_kwargs()` дают `NotImplementedError` |
 | `socketpair()` | Linux — AF_UNIX SOCK_SEQPACKET, Windows — loopback TCP; концы равноправны, не наследуются |
 | `listen(address, backlog=16)` | Слушающий сокет писателя. Linux — AF_UNIX SOCK_SEQPACKET, `address` — путь (файл не должен существовать) или абстрактное имя `"\0…"`; Windows — TCP, `address = (host, port)` |
-| `connect(address)` | Сокет читателя, подключённый к `listen(address)` |
+| `connect(address, *, retry=None)` | Сокет читателя, подключённый к `listen(address)`. `retry` — пока адрес никто не слушает (`ConnectionRefusedError`, `FileNotFoundError`), повторять каждые `retry` секунд, блокируя поток; прочие ошибки — сразу |
 | `spawn_kwargs(sock) -> dict` | Аргументы `Popen`/`create_subprocess_exec` для наследования `sock`: `pass_fds` (Linux), `startupinfo` с `handle_list` (Windows; `sock` становится наследуемым). В дочернем процессе — `socket.socket(fileno=…)` с номером из родителя |
 | `Publisher(sock=None, *, sndbuf=16384, name="shmobj")` | `sock` — первый подписчик (`add`). Linux: `SO_SNDBUF = sndbuf` у сокета каждого подписчика, `name` — имя memfd (видно в `/proc/<pid>/maps`). Windows: `sndbuf` не используется, `name` — префикс имён снимков |
 | `Publisher.add(sock)` | Владеет `sock`, переводит в неблокирующий режим; последний снимок уходит сразу. Писатель закрыт — `ValueError` |

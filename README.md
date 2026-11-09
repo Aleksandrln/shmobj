@@ -203,27 +203,22 @@ with channel.Publisher() as pub:
 
 ```python
 import sys
-import time
 
 from shmobj import channel
 
 ADDRESS = ("127.0.0.1", 50555) if sys.platform == "win32" else "\0snapshots"
 
 while True:
-    try:
-        sock = channel.connect(ADDRESS)
-    except ConnectionRefusedError:  # писатель ещё не запущен или перезапускается
-        time.sleep(1)
-        continue
-    with channel.Subscriber(sock) as sub:
+    # retry: писатель ещё не запущен или перезапускается — повторять каждую секунду.
+    with channel.Subscriber(channel.connect(ADDRESS, retry=1)) as sub:
         # wait() спит, пока не придёт снимок: True — sub.latest сменился, False — писатель закрылся или упал.
         while sub.wait():
             root = sub.latest  # FrozenDict поверх общей памяти, без копирования
             print(f"tick={root['tick']} cpu[101]={root['vms'][101]['cpu']}")
 ```
 
-Встроенного переподключения нет: `Subscriber` получает готовый сокет, а после закрытия канала читатель
-подключается заново, как во внешнем цикле примера. Новый писатель сразу присылает свой последний снимок.
+`Subscriber` получает готовый сокет и сам не переподключается: после закрытия канала читатель подключается заново,
+как во внешнем цикле примера. Новый писатель сразу присылает свой последний снимок.
 
 Другие варианты подключения:
 
