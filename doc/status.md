@@ -12,9 +12,9 @@
 | Канал `shmobj.channel` | Linux — memfd, Windows — именованные снимки с подтверждением; несколько подписчиков, `listen`/`connect`/`connect_async` с ожиданием писателя, приём подключений в потоке и в asyncio, `wait`/`wait_async`/`attach`. macOS — `SUPPORTED = False` |
 | `shmobj.latest` | `Writer.put`/`Reader.get` по имени, любая ОС; уборка имён в `close()` и при выходе, подхват после падения писателя |
 | Отладчик | Плагин pydevd в колесе |
-| CI | fmt, clippy, `cargo test`, pytest на Linux/Windows/macOS × 3.11/3.13; колёса, sdist и GitHub Release по тегу |
+| CI | fmt, clippy, `cargo test`, pytest на Linux/Windows/macOS × 3.11/3.14; колёса, sdist и GitHub Release по тегу |
 
-Локально проверялся только Linux; Windows и macOS — в CI.
+Локально проверялся только Linux (Python 3.11–3.13); Windows и macOS — в CI.
 
 ## Нет
 

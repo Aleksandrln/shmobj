@@ -93,6 +93,8 @@ pytest                            # tests/: golden, сверка с эталон
   `LICENSE-APACHE`, `license-files` кладёт их в колесо (`.dist-info/licenses/`) и sdist. Автор и ссылки на GitHub —
   строка copyright в `LICENSE-MIT`, `authors`/`repository` в `Cargo.toml` (workspace), `authors` и `[project.urls]`
   в `pyproject.toml`; текст `LICENSE-APACHE` не меняется.
+- `pyproject.toml`: `readme = "README.md"` — описание пакета в метаданных колеса и sdist (ссылки в нём
+  относительные: рассчитаны на GitHub); `classifiers`, `keywords`.
 - `rustfmt.toml`: `max_width = 120`.
 - `shmobj-core`: `[lints]` запрещают `unsafe`, `panic`, `unwrap`, индексацию без проверки.
 - `shmobj-py` не зависит от `xxhash-rust` напрямую: хэш считается в `shmobj-core`.
@@ -100,4 +102,5 @@ pytest                            # tests/: golden, сверка с эталон
   едет в колесо рядом с `shmobj`. В `pydevd_plugins/` и `extensions/` нет `__init__.py`: пакеты
   принадлежат pydevd, плагин — только часть пространства имён. Проверка — `tests/test_debugger.py`
   (нужен `pydevd-pycharm`, без него тест пропускается).
-- CI (`.github/workflows/ci.yml`): `rust`, `python` на каждый пуш и PR; `wheels`, `sdist`, `release` — см. «Релиз».
+- CI (`.github/workflows/ci.yml`): `rust`, `python` (Linux, Windows, macOS × Python 3.11 и 3.14) на каждый пуш и PR;
+  `wheels`, `sdist`, `release` — см. «Релиз».

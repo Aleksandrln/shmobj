@@ -4,6 +4,7 @@
 `unlink` не нужен. Печатей нет: неизменность снимка — на писателе. На Linux протокол работает поверх `/dev/shm` (тесты)."""
 from __future__ import annotations
 
+import itertools
 import os
 import socket
 from typing import Any
@@ -15,6 +16,8 @@ from ._subscriber import SubscriberBase
 # очередь — снимки без подтверждения; каждый держит свою SharedMemory у писателя
 _MAX_PENDING = 4
 _EOL = b"\n"
+# номер писателя в процессе: имена снимков разных писателей не совпадают и при одном `name`
+_PUBLISHERS = itertools.count()
 
 
 def _release(seg) -> None:
@@ -59,6 +62,7 @@ class NamedPublisher(PublisherBase):
     _SOCK_TYPE = "SOCK_STREAM"
 
     def __init__(self, sock: socket.socket | None = None, *, sndbuf: int = 16 * 1024, name: str = "shmobj") -> None:
+        self._prefix = f"{name}-{os.getpid()}-{next(_PUBLISHERS)}"  # имя снимка — `<prefix>-<номер>`
         self._seq = 0
         self._segments: dict[bytes, Any] = {}  # имя → Segment
         super().__init__(sock, sndbuf=sndbuf, name=name)
@@ -77,7 +81,7 @@ class NamedPublisher(PublisherBase):
         return gone
 
     def _build(self, obj: Any, dedup: bool, checksum: bool) -> bytes:
-        name = f"{self._name}-{os.getpid()}-{self._seq}"
+        name = f"{self._prefix}-{self._seq}"
         self._seq += 1
         self._segments[name.encode()] = _shm.create(obj, name, dedup=dedup, checksum=checksum)
         return name.encode()

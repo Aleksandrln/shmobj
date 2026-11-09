@@ -58,7 +58,7 @@ def _memfd_refs(name):
 
 def _held(pub, i):
     """Жив ли i-й снимок именованного писателя `pub` (его держит кто-то в этом процессе)."""
-    name = f"{pub._name}-{os.getpid()}-{i}"
+    name = f"{pub._prefix}-{i}"
     if os.name != "nt":  # POSIX: имя удаляется при подтверждении, отображение остаётся
         with open("/proc/self/maps") as maps:
             return any(f"/dev/shm/{name}" in line for line in maps)
@@ -729,6 +729,20 @@ def named_ends():
 
 
 @needs_channel
+def test_named_publishers_same_name():
+    pairs = [socket.socketpair() for _ in range(2)]
+    pubs = [_named.NamedPublisher(pub_sock, name=f"shmobj-test-{os.getpid()}") for pub_sock, _ in pairs]
+    subs = [_named.NamedSubscriber(sub_sock) for _, sub_sock in pairs]
+    try:
+        for i, (pub, sub) in enumerate(zip(pubs, subs)):
+            pub.publish([i])
+            assert sub.receive() and list(sub.latest) == [i]
+    finally:
+        for end in pubs + subs:
+            end.close()
+
+
+@needs_channel
 def test_named_ack_releases_writer_copies(named_ends):
     pub, sub = named_ends
     for i in range(3):
@@ -736,7 +750,7 @@ def test_named_ack_releases_writer_copies(named_ends):
     sub.receive()
     assert [_held(pub, i) for i in range(3)] == [True] * 3  # подтверждения ещё не прочитаны
     pub.publish([3])  # читает подтверждения 0–2
-    assert list(pub._subs[0].pending) == [f"{pub._name}-{os.getpid()}-3".encode()]
+    assert list(pub._subs[0].pending) == [f"{pub._prefix}-3".encode()]
     assert [_held(pub, i) for i in range(4)] == [False, False, True, True]  # 2 — у читателя
     sub.receive()
     pub.publish([4])

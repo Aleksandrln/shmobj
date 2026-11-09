@@ -11,7 +11,7 @@ import socket
 from collections.abc import Callable
 from typing import Any, Final
 
-from . import Value
+from .. import Value
 
 SUPPORTED: Final[bool]
 """Linux (CPython с os.memfd_create) или Windows. Иначе (macOS) конструкторы,
@@ -48,7 +48,7 @@ class Publisher:
         """`sock` — первый подписчик (`add`). Linux: `sndbuf` — SO_SNDBUF сокета каждого подписчика,
         ограничивает его очередь непрочитанных снимков; `name` — имя memfd (видно в `/proc/<pid>/maps`).
         Windows: `sndbuf` не используется, очередь — 4 неподтверждённых снимка на подписчика; `name` —
-        префикс имён SharedMemory (`<name>-<pid>-<номер>`)."""
+        префикс имён SharedMemory (`<name>-<pid>-<писатель>-<номер>`)."""
     def add(self, sock: socket.socket) -> None:
         """Подписать сокет; последний опубликованный снимок уходит ему сразу. Писатель закрыт — `ValueError`."""
     def accept_in_thread(self, listener: socket.socket) -> Any:
