@@ -173,6 +173,73 @@ with shmobj.attach(segment.name) as seg:
 
 Устройство управляющего сегмента — [api.md §7](api.md#7-последний-снимок-по-имени-shmobjlatest).
 
+## Docker
+
+Внутри одного контейнера всё работает как обычно, но `/dev/shm` по умолчанию — 64 МБ. Между контейнерами по умолчанию
+не видны ни сегменты, ни адрес канала.
+
+| Проблема | Что происходит | Решение |
+|---|---|---|
+| Сегмент `create()` / `latest` больше `/dev/shm` | Процесс падает с `Bus error` (SIGBUS), исключения нет | `--shm-size=1g` (compose: `shm_size: 1g`) |
+| `attach()` / `latest.Reader` в другом контейнере | `FileNotFoundError`: у каждого контейнера свой `/dev/shm` | Общий IPC: `--ipc=shareable` у писателя, `--ipc=container:<писатель>` у читателей |
+| `channel` с адресом `"\0имя"` в другом контейнере | `ConnectionRefusedError`: абстрактный адрес виден только в своей сети | Путь к сокету в общем томе |
+| Разные пользователи в контейнерах | `PermissionError`: сегмент доступен только создателю (права `0600`) | Один UID у писателя и читателей (`user:` в compose) |
+
+Память сегмента учитывается в лимите контейнера, который его записал, — у писателя. Читатели за неё не платят.
+
+**`create()` / `attach()` и `latest` — общий `/dev/shm`:**
+
+```yaml
+services:
+  writer:
+    image: app
+    ipc: shareable
+    shm_size: 1g            # размер /dev/shm на всех
+  reader:
+    image: app
+    ipc: "service:writer"   # /dev/shm писателя
+```
+
+**`channel` — сокет-файл в общем томе.** Снимок передаётся дескриптором memfd прямо через сокет: не нужны ни `ipc`, ни
+`shm_size`, после падения не остаётся сегментов.
+
+```yaml
+services:
+  writer:
+    image: app
+    volumes: [ sock:/run/shmobj ]
+  reader:
+    image: app
+    volumes: [ sock:/run/shmobj ]
+volumes:
+  sock:
+```
+
+```python
+import contextlib
+import os
+
+from shmobj import channel
+
+ADDRESS = "/run/shmobj/metrics.sock"
+
+# Писатель: файл сокета остаётся после падения, а listen() требует, чтобы его не было
+with contextlib.suppress(FileNotFoundError):
+    os.unlink(ADDRESS)
+with channel.Publisher() as pub:
+    pub.accept_in_thread(channel.listen(ADDRESS))
+    ...
+
+# Читатель: как обычно
+with channel.Subscriber(channel.connect(ADDRESS, wait_writer=True)) as sub:
+    ...
+```
+
+**Файл в общем томе.** `dumps()` в файл на общем томе (bind mount), читатели — `loads()` поверх `mmap`
+([Файл, mmap и bytes](#файл-mmap-и-bytes)). Страницы файла — в общем файловом кеше хоста, настройки `ipc` не нужны.
+Подходит для редко меняющихся данных: о новой версии читатели не узнают. Новую версию пишут во временный файл и
+подменяют через `os.replace()`, читатели открывают файл заново.
+
 ## Отладчик
 
 PyCharm и VS Code (debugpy) раскрывают `FrozenDict`, `FrozenList` и `keys()`/`values()`/`items()` как обычные
