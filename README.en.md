@@ -181,7 +181,7 @@ with channel.Publisher() as pub:
 
 # Reader:
 while True:
-    # wait for the writer to start listening (up to 30 seconds)
+    # wait until the writer starts listening; wait_writer=30 — at most 30 seconds
     with channel.Subscriber(channel.connect(ADDRESS, wait_writer=True)) as sub:
         while sub.wait():  # True — a snapshot arrived; False — the writer closed or crashed
             print(sub.latest["vms"][101]["cpu"])  # FrozenDict backed by shared memory
