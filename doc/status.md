@@ -71,6 +71,8 @@
 - `shmobj.latest` — на именах, а не на сокетах: читатель подключается сам, в любой момент, и работает на macOS. Цена —
   имена на POSIX после падения писателя и опрос вместо уведомления. Имена не регистрируются в `resource_tracker`
   (`_shm.open_shm(track=False)`): уборка трекера при выходе писателя удалила бы управляющий сегмент из-под читателей.
+  Читатель открывает управляющий сегмент не через SharedMemory (`_shm.open_existing`): между `shm_open` и
+  `ftruncate` писателя сегмент имеет длину 0, его mmap — ошибка, и SharedMemory при OSError (macOS) удаляет имя.
 - Внутренняя `shmobj._core.open_segment(buf, *, name, on_close, on_unlink, verify)` создаёт `Segment`;
   `create`/`attach` в `python/shmobj/_shm.py` передают в неё колбэки `SharedMemory`.
 

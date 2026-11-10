@@ -146,6 +146,17 @@ def test_snapshot_gone_before_attach(name):
         assert r.get() is root
 
 
+@posix_only
+def test_reader_during_control_creation(name):
+    import _posixshmem
+
+    # писатель создал имя, но размер ещё не задал (между shm_open и ftruncate)
+    os.close(_posixshmem.shm_open("/" + name, os.O_CREAT | os.O_EXCL | os.O_RDWR, mode=0o600))
+    with latest.Reader(name) as r:
+        assert r.get() is None
+    os.close(_posixshmem.shm_open("/" + name, os.O_RDWR))  # имя на месте: SharedMemory удаляет его при сбое mmap
+
+
 def test_reader_in_other_process(name):
     with latest.Writer(name) as w:
         w.put({"users": [{"id": i} for i in range(100)]})
