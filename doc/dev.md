@@ -97,7 +97,7 @@ pytest                            # tests/: golden, сверка с эталон
 - pypi.org и test.pypi.org, *Publishing*: проект `shmobj`, owner `Aleksandrln`, repository `shmobj`, workflow
   `ci.yml`, environment `pypi` и `testpypi` соответственно.
 - GitHub, *Settings → Environments*: `pypi` (*Deployment branches and tags* — только теги `v*`; по желанию
-  *Required reviewers*) и `testpypi`.
+  *Required reviewers*) и `testpypi` (без ограничений: запуск с любой ветки до тега).
 - GitHub, *Settings → Rules → Rulesets*: tag ruleset на `v*` — *Restrict creations*, *updates*, *deletions*, в
   *Bypass list* — Repository admin. Правило окружения проверяет только имя тега; принадлежность коммита `master` —
   job `version`.
