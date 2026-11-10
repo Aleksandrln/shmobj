@@ -89,7 +89,9 @@ def _load_memfd(fd: int, verify: bool) -> Any:
     try:
         if fcntl.fcntl(fd, _F_GET_SEALS) & _REQUIRED_SEALS != _REQUIRED_SEALS:
             raise ValueError("shmobj.channel: снимок не запечатан от записи и укорачивания")
-        buf = mmap.mmap(fd, os.fstat(fd).st_size, prot=mmap.PROT_READ)
+        # MAP_PRIVATE: ядра до 6.7 запрещают MAP_SHARED-отображение memfd с F_SEAL_WRITE даже на чтение (EPERM);
+        # без PROT_WRITE частное отображение делит страницы memfd, копий нет
+        buf = mmap.mmap(fd, os.fstat(fd).st_size, flags=mmap.MAP_PRIVATE, prot=mmap.PROT_READ)
     finally:
         os.close(fd)
     return open_segment(buf, verify=verify).root  # прокси держат mmap; отпущен последний — память уходит ядру
