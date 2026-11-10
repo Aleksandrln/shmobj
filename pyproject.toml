@@ -7,7 +7,7 @@ name = "shmobj"
 requires-python = ">=3.11"
 dynamic = ["version"]
 description = "Zero-copy shared-memory dict/list structures for Python multiprocessing (Rust core)"
-readme = "README.md"
+readme = "README.en.md"
 keywords = ["shared-memory", "multiprocessing", "ipc", "mmap", "zero-copy"]
 license = "MIT OR Apache-2.0"
 license-files = ["LICENSE-MIT", "LICENSE-APACHE"]

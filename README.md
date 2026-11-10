@@ -1,5 +1,7 @@
 # shmobj (Шмобж)
 
+[English](https://github.com/Aleksandrln/shmobj/blob/master/README.en.md) | **Русский**
+
 `dict`/`list`-подобные структуры с неограниченным уровнем вложенности в разделяемой памяти (через `mmap`) и доступ к ним
 из нескольких процессов без копирования и десериализации.
 
@@ -315,7 +317,7 @@ with open("data.shmobj", "rb") as file:  # в каждом процессе: с�
 pip install git+https://github.com/Aleksandrln/shmobj
 ```
 
-## Полная сборка из каталога проекта
+### Полная сборка из каталога проекта
 
 Нужны CPython 3.11+ и Rust stable ([rustup](https://rustup.rs)); на Windows ещё Visual Studio Build Tools с компонентом
 C++. Rust на Linux и macOS:

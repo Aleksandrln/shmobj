@@ -64,9 +64,10 @@ pytest                            # tests/: golden, сверка с эталон
   `LICENSE-APACHE`, `license-files` кладёт их в колесо (`.dist-info/licenses/`) и sdist. Автор и ссылки на GitHub —
   строка copyright в `LICENSE-MIT`, `authors`/`repository` в `Cargo.toml` (workspace), `authors` и `[project.urls]`
   в `pyproject.toml`; текст `LICENSE-APACHE` не меняется.
-- `pyproject.toml`: `readme = "README.md"` — описание пакета в метаданных колеса и sdist, его показывает PyPI.
-  Ссылки на файлы репозитория в README — абсолютные (`https://github.com/Aleksandrln/shmobj/blob/master/...`):
-  на PyPI относительные битые. `description` совпадает с About на GitHub; `classifiers` без `License ::` —
+- README в двух файлах: `README.md` (русский) показывает GitHub, `README.en.md` (английский) — `readme`
+  в `pyproject.toml`, описание пакета в метаданных колеса и sdist, его показывает PyPI. Правятся вместе, разделы
+  и примеры совпадают. Ссылки на файлы репозитория в обоих — абсолютные
+  (`https://github.com/Aleksandrln/shmobj/blob/master/...`): на PyPI относительные битые. `description` совпадает с About на GitHub; `classifiers` без `License ::` —
   лицензия задана выражением (PEP 639); `[project.urls]` — боковая панель на PyPI.
 - `rustfmt.toml`: `max_width = 120`.
 - `shmobj-core`: `[lints]` запрещают `unsafe`, `panic`, `unwrap`, индексацию без проверки.
