@@ -282,7 +282,7 @@ More: [Segment lifecycle](https://github.com/Aleksandrln/shmobj/blob/master/doc/
 - **Supported values:** `dict`, `list`, `tuple` (represented as a list when read), `None`, `bool`, arbitrary-precision
   `int`, `float`, `str` and `bytes`. Dictionary keys must be scalar values.
 - **macOS — partial support:** `shmobj.channel` is not available (use `shmobj.latest` instead). The package passes the
-  test suite but has not been tested in production projects.
+  test suite but has not been used in production projects.
 - **Format validation:** accessing corrupted data raises `FormatError`. `validate()` checks the entire buffer.
 - **Docker:** by default, each container has its own `/dev/shm` (64 MB) and its own network. You can work around this
   by configuring shared IPC and `shm_size` in Compose, or by using a channel over a socket file in a shared volume —
@@ -355,4 +355,4 @@ Dual-licensed under [MIT](https://github.com/Aleksandrln/shmobj/blob/master/LICE
 
 ## Author
 
-Created by [AleksandrLn](https://github.com/Aleksandrln), with [Claude](https://claude.ai) by Anthropic.
+Created by [AleksandrLn](https://github.com/Aleksandrln) with the help of [Claude](https://claude.ai) by Anthropic.
