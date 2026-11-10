@@ -43,7 +43,7 @@ pip install shmobj
 Prebuilt wheels are available for:
 
 - **Python:** CPython 3.11 and later;
-- **Linux:** x86_64, aarch64;
+- **Linux:** x86_64, aarch64 — glibc (manylinux) and musl (musllinux, Alpine);
 - **Windows:** x64;
 - **macOS:** arm64, x86_64 — partial support ([limitations](#limitations)).
 

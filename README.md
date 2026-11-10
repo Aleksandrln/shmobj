@@ -43,7 +43,7 @@ pip install shmobj
 Готовые колёса:
 
 - **Python:** CPython 3.11 и новее;
-- **Linux:** x86_64, aarch64;
+- **Linux:** x86_64, aarch64 — glibc (manylinux) и musl (musllinux, Alpine);
 - **Windows:** x64;
 - **macOS:** arm64, x86_64 — поддержка частичная ([ограничения](#ограничения)).
 

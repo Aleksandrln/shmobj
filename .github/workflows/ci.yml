@@ -63,6 +63,8 @@ jobs:
         include:
           - { os: ubuntu-latest, target: x86_64, manylinux: auto }
           - { os: ubuntu-latest, target: aarch64, manylinux: auto }
+          - { os: ubuntu-latest, target: x86_64, manylinux: musllinux_1_2 }  # Alpine
+          - { os: ubuntu-latest, target: aarch64, manylinux: musllinux_1_2 }
           - { os: windows-latest, target: x64 }
           - { os: macos-latest, target: aarch64 }
           - { os: macos-latest, target: x86_64 }  # кросс-сборка на arm-раннере; без колеса pip на Intel требует Rust
@@ -75,7 +77,28 @@ jobs:
           manylinux: ${{ matrix.manylinux }}
           args: --release -o dist
       - uses: actions/upload-artifact@v4
-        with: { name: "wheel-${{ matrix.os }}-${{ matrix.target }}", path: dist }
+        with: { name: "wheel-${{ matrix.os }}-${{ matrix.target }}-${{ matrix.manylinux || 'native' }}", path: dist }
+
+  # Колёса musllinux — pytest в python:<версия>-alpine. Через docker run, а не container: JS-экшены
+  # (checkout, download-artifact) в Alpine-контейнере на arm64-раннере не запускаются.
+  # pydevd-pycharm не ставится: плагин отладчика не зависит от libc, test_debugger пропускается.
+  # --shm-size: в Docker /dev/shm по умолчанию 64 МБ (doc/usage.md, «Docker»).
+  musl:
+    needs: wheels
+    strategy:
+      matrix:
+        arch: [x86_64, aarch64]
+        python: ["3.11", "3.14"]
+    runs-on: ${{ matrix.arch == 'aarch64' && 'ubuntu-24.04-arm' || 'ubuntu-latest' }}
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/download-artifact@v4
+        with: { name: "wheel-ubuntu-latest-${{ matrix.arch }}-musllinux_1_2", path: dist }
+      - run: >-
+          docker run --rm --shm-size=1g -v "$PWD:/w" -w /w python:${{ matrix.python }}-alpine sh -euc
+          'pip install --root-user-action=ignore pytest hypothesis xxhash
+          && pip install --root-user-action=ignore --no-index --find-links dist shmobj
+          && pytest reference/ && pytest'
 
   sdist:
     needs: [rust, python]
@@ -93,7 +116,7 @@ jobs:
   # Релиз, созданный в интерфейсе вместе с тегом, получает файлы; без него релиз создаётся.
   release:
     if: github.event_name == 'push' && startsWith(github.ref, 'refs/tags/v')
-    needs: [version, wheels, sdist]
+    needs: [version, wheels, musl, sdist]
     runs-on: ubuntu-latest
     permissions: { contents: write }
     steps:
@@ -113,7 +136,7 @@ jobs:
   # gh-action-pypi-publish проверяет метаданные (twine check) и прикладывает аттестации (PEP 740).
   pypi:
     if: github.event_name == 'workflow_dispatch' && inputs.publish == 'pypi'
-    needs: [version, wheels, sdist]
+    needs: [version, wheels, musl, sdist]
     runs-on: ubuntu-latest
     environment: pypi
     permissions: { id-token: write }
@@ -124,7 +147,7 @@ jobs:
 
   testpypi:
     if: github.event_name == 'workflow_dispatch' && inputs.publish == 'testpypi'
-    needs: [wheels, sdist]
+    needs: [wheels, musl, sdist]
     runs-on: ubuntu-latest
     environment: testpypi
     permissions: { id-token: write }

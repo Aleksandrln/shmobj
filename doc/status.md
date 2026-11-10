@@ -15,6 +15,7 @@
 
 В рабочем проекте — Linux (Python 3.11–3.13) и Windows x86_64. macOS — только тесты CI на arm64;
 в README поддержка macOS — частичная.
+Alpine (musl) — только тесты CI (`musl` в `ci.yml`), x86_64 и aarch64.
 
 ## Нет
 
