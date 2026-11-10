@@ -2,6 +2,7 @@
 from __future__ import annotations
 
 import contextlib
+import mmap
 import os
 import sys
 from multiprocessing import shared_memory
@@ -46,6 +47,43 @@ def open_shm(name: str | None, *, create: bool = False, size: int = 0, track: bo
 
         resource_tracker.unregister(shm._name, "shared_memory")  # noqa: SLF001
     return shm
+
+
+class _Mapped:
+    """Существующий POSIX-сегмент только на чтение: `buf`, `size`, `close()` как у SharedMemory."""
+
+    def __init__(self, mm: mmap.mmap) -> None:
+        self._mmap = mm
+        self.buf = memoryview(mm)
+        self.size = len(mm)
+
+    def close(self) -> None:
+        self.buf.release()
+        self._mmap.close()
+
+
+def open_existing(name: str):
+    """Существующий сегмент на чтение; None — имени нет или создатель ещё не задал размер.
+
+    POSIX — без SharedMemory: сегмент между `shm_open` и `ftruncate` создателя имеет длину 0, её mmap — ошибка,
+    а при OSError (macOS — EINVAL) SharedMemory удаляет имя, то есть сегмент создателя.
+    """
+    if not _POSIX:
+        try:
+            return open_shm(name)
+        except FileNotFoundError:
+            return None
+    import _posixshmem
+
+    try:
+        fd = _posixshmem.shm_open("/" + name, os.O_RDONLY, mode=0o600)
+    except FileNotFoundError:
+        return None
+    try:
+        size = os.fstat(fd).st_size
+        return _Mapped(mmap.mmap(fd, size, prot=mmap.PROT_READ)) if size else None
+    finally:
+        os.close(fd)
 
 
 def unlink_name(name: str) -> None:

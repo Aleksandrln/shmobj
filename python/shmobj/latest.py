@@ -162,7 +162,7 @@ class Reader:
     def __init__(self, name: str, *, verify: bool = False) -> None:
         self._name = name
         self._verify = verify
-        self._control = None  # SharedMemory управляющего сегмента
+        self._control = None  # управляющий сегмент (`_shm.open_existing`)
         self._version = None  # (epoch, gen) снимка в _root
         self._root = None
         self._closed = False
@@ -176,9 +176,8 @@ class Reader:
         return self._closed
 
     def _open_control(self) -> bool:
-        try:
-            shm = _shm.open_shm(self._name)
-        except FileNotFoundError:
+        shm = _shm.open_existing(self._name)
+        if shm is None:
             return False
         if shm.size < _CONTROL.size:
             shm.close()
