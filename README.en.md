@@ -47,7 +47,7 @@ Prebuilt wheels:
 - **Python:** CPython 3.11 and newer;
 - **Linux:** x86_64, aarch64;
 - **Windows:** x64;
-- **macOS:** arm64, x86_64.
+- **macOS:** arm64, x86_64 — partial support ([limitations](#limitations)).
 
 On other platforms pip builds the package from the sdist, which requires Rust ([building from source](#building-from-source)).
 
@@ -284,7 +284,8 @@ More: [Segment lifecycle](https://github.com/Aleksandrln/shmobj/blob/master/doc/
   [`shmobj.latest`](#shmobjlatest) or [`shmobj.channel`](#pubsub-shmobjchannel).
 - **Supported values:** `dict`, `list`, `tuple` (read back as a list), `None`, `bool`, arbitrary-precision `int`,
   `float`, `str` and `bytes`. Dictionary keys must be scalars.
-- **Platforms:** `shmobj.channel` is available on Linux and Windows; on macOS use `shmobj.latest`.
+- **macOS — partial support:** no `shmobj.channel` (use `shmobj.latest`); the package passes the tests in CI
+  (arm64) but has not been used in production projects; the x86_64 wheel is not tested.
 - **Format checks:** corrupted data raises `FormatError` when accessed. `validate()` checks the whole buffer.
 - **Docker:** by default each container has its own `/dev/shm` (64 MB) and its own network. This is solved by
   configuration: shared IPC and `shm_size` in compose, or a channel over a socket file in a shared volume —
