@@ -1,0 +1,358 @@
+# shmobj
+
+**English** | [Русский](https://github.com/Aleksandrln/shmobj/blob/master/README.md)
+
+Arbitrarily nested `dict`/`list`-like structures in shared memory (via `mmap`), accessible from multiple processes without
+copying or deserialization.
+
+`shmobj` provides the `FrozenDict` (`Mapping`) and `FrozenList` (`Sequence`) proxy objects for accessing data in shared
+memory. The data is stored in memory only once. All processes access the same shared structure, and Python objects are
+created only for the values that are actually accessed.
+
+## Why shmobj?
+
+CPU-bound Python workloads often use multiple processes to work around the GIL. Each process would normally keep its own
+copy of the data. For example, a 100 MB lookup table, configuration, or metrics dataset shared across 8 workers would
+consume about 800 MB of memory. `shmobj` keeps a single shared copy instead.
+
+Benchmark: one million records with a structure like `{"id", "name", "score", "tags": [...], "ok", "x"}`. Each
+process iterated over every record.
+
+| Processes | `pickle` — total memory usage | `shmobj` — total memory usage |
+|----------:|------------------------------:|------------------------------:|
+|         1 |                        628 MB |                        168 MB |
+|         4 |                        2.5 GB |                        168 MB |
+|         8 |                        5.0 GB |                        168 MB |
+
+More measurements: [doc/status.md](https://github.com/Aleksandrln/shmobj/blob/master/doc/status.md).
+
+Attaching to an existing segment takes about 50 µs, compared with about 1.5 s for `pickle.loads` on the same dataset.
+The trade-off is that key lookups are 3–6 times slower than in a regular `dict`. `get_many()`, `iter_values()`,
+`iter_items()` and `materialize()` help speed up sequential reads and repeated access.
+
+More on performance and access patterns: [Access speed](https://github.com/Aleksandrln/shmobj/blob/master/doc/usage.md#скорость-доступа).
+
+The detailed documentation in `doc/` is currently available in Russian.
+
+## Installation
+
+```bash
+pip install shmobj
+```
+
+Prebuilt wheels are available for:
+
+- **Python:** CPython 3.11 and later;
+- **Linux:** x86_64, aarch64;
+- **Windows:** x64;
+- **macOS:** arm64, x86_64 — partial support ([limitations](#limitations)).
+
+On other platforms, pip builds the package from the source distribution (sdist), which requires Rust ([building from source](#building-from-source)).
+
+The same wheels are available on the [releases page](https://github.com/Aleksandrln/shmobj/releases):
+
+```bash
+pip install ./shmobj-<version>-cp311-abi3-<platform>.whl
+```
+
+## Main use cases
+
+| Use case                                      | API                     | Example                                                                                           |
+|-----------------------------------------------|-------------------------|---------------------------------------------------------------------------------------------------|
+| Share one dataset across multiple processes   | `create()` / `attach()` | [shared_pool.py](https://github.com/Aleksandrln/shmobj/blob/master/examples/shared_pool.py)       |
+| Let readers access the latest published snapshot | `shmobj.latest`      | [latest_pubsub.py](https://github.com/Aleksandrln/shmobj/blob/master/examples/latest_pubsub.py)   |
+| Receive new snapshots without polling         | `shmobj.channel`        | [channel_pubsub.py](https://github.com/Aleksandrln/shmobj/blob/master/examples/channel_pubsub.py) |
+| Read data from a file or `bytes`              | `dumps()` / `loads()`   | [file_mmap.py](https://github.com/Aleksandrln/shmobj/blob/master/examples/file_mmap.py)           |
+
+All examples are in the [examples](https://github.com/Aleksandrln/shmobj/blob/master/examples/README.md) directory.
+Install [`shmobj`](#installation) before running them.
+
+### Shared dataset
+
+`create()` creates a segment and writes the data structure to it. Other processes attach to the segment by name using
+`attach()`. The memory is released after `unlink()` has been called and all processes have closed the segment (on Windows,
+after the last handle is closed).
+
+```python
+import shmobj
+
+# Writer process
+
+segment = shmobj.create({
+    "users": [
+        {"id": 1, "name": "Ann", "score": 42},
+        {"id": 2, "name": "Bob", "score": 37},
+    ]
+})
+
+print(segment.name)  # pass the name to the reader processes
+
+# Reader process
+with shmobj.attach(segment.name) as segment:
+    users = segment.root["users"]
+
+    print(users[0].get_many(["id", "name"]))
+    total = sum(user["score"] for user in users.iter_values())
+```
+
+`FrozenDict` and `FrozenList` implement the `Mapping` and `Sequence` interfaces, so you can use them much like regular
+`dict` and `list` objects.
+
+It also works with `multiprocessing` ([shared_pool.py](https://github.com/Aleksandrln/shmobj/blob/master/examples/shared_pool.py)):
+
+```python
+import multiprocessing
+import shmobj
+
+
+def init(segment_name):
+    global users
+    users = shmobj.attach(segment_name).root["users"]  # The proxy keeps the segment open for the lifetime of the worker.
+
+
+def score(index):
+    return users[index]["score"]
+
+
+if __name__ == "__main__":
+    data = {"users": [{"id": i, "score": i % 100} for i in range(100_000)]}
+    # Exiting the with block closes the segment and unlinks it from the OS.
+    with shmobj.create(data, unlink_on_close=True) as segment:
+        with multiprocessing.Pool(4, initializer=init, initargs=(segment.name,)) as pool:
+            print(sum(pool.map(score, range(len(data["users"])), chunksize=10_000)))
+```
+
+### `shmobj.latest`
+
+`shmobj.latest` lets you publish snapshots under a given name. The writer publishes a new snapshot in place of the
+previous one, and readers get the current version by calling `get()`. No sockets are involved, and processes can start
+in any order.
+
+```python
+from shmobj import latest
+
+# Writer process
+writer = latest.Writer("metrics")
+writer.put({"vms": {101: {"cpu": 0.5}}})
+
+# Reader process
+reader = latest.Reader("metrics")
+root = reader.get()  # None if no snapshot has been published yet; otherwise, the same object until it changes
+```
+
+As long as the snapshot remains unchanged, `get()` returns the same object. A reader only detects an update when it calls
+`get()` again.
+
+Example: [latest_pubsub.py](https://github.com/Aleksandrln/shmobj/blob/master/examples/latest_pubsub.py).
+
+**Cleanup after a crash.** On Linux and macOS, segment names may remain registered with the OS if the writer crashes.
+On Linux, these segments are located in `/dev/shm`. They remain there until a reboot, a container restart, or the next
+writer that uses the same name.
+
+### Pub/Sub: `shmobj.channel`
+
+One writer, multiple readers. Readers are notified of new snapshots without polling.
+
+- A new subscriber immediately receives the latest snapshot.
+- Intermediate snapshots may be skipped: readers get the current state, not a queue of every update.
+- After all processes exit, the OS releases the channel resources; no names are left behind in `/dev/shm` either.
+- The channel address remains stable, so readers can reconnect after the writer restarts.
+
+On Linux, an address such as `"\0name"` uses the abstract Unix socket namespace. It is not a file, and the kernel releases
+the address when the writer exits. Windows uses TCP loopback instead.
+
+#### Synchronous API
+
+```python
+import itertools
+import sys
+import time
+
+from shmobj import channel
+
+ADDRESS = ("127.0.0.1", 50555) if sys.platform == "win32" else "\0shmobj-example"
+
+# Writer
+with channel.Publisher() as pub:
+    pub.accept_in_thread(channel.listen(ADDRESS))  # a background thread accepts subscribers
+    for tick in itertools.count():
+        pub.publish({"tick": tick, "vms": {101: {"cpu": tick % 100}}})  # non-blocking
+        time.sleep(1)
+
+# Reader:
+while True:
+    # wait until the writer starts listening; wait_writer=30 — at most 30 seconds
+    with channel.Subscriber(channel.connect(ADDRESS, wait_writer=True)) as sub:
+        while sub.wait():  # True — a snapshot arrived; False — the writer closed or crashed
+            print(sub.latest["vms"][101]["cpu"])  # FrozenDict backed by shared memory
+```
+
+Example: [channel_pubsub.py](https://github.com/Aleksandrln/shmobj/blob/master/examples/channel_pubsub.py).
+
+#### asyncio API
+
+The channel supports asynchronous connections and waiting for updates. Waiting for the writer does not block the event
+loop.
+
+```python
+import asyncio
+import itertools
+import sys
+
+from shmobj import channel
+
+ADDRESS = ("127.0.0.1", 50555) if sys.platform == "win32" else "\0shmobj-example"
+
+
+# Writer
+async def main():
+    with channel.Publisher() as pub:
+        pub.accept_in_loop(channel.listen(ADDRESS))  # the event loop accepts subscribers, without a separate thread
+        for tick in itertools.count():
+            pub.publish({"tick": tick, "vms": {101: {"cpu": tick % 100}}})
+            await asyncio.sleep(1)
+
+
+# Reader:
+async def main():
+    while True:
+        sock = await channel.connect_async(ADDRESS, wait_writer=True)  # waiting does not block the event loop
+        with channel.Subscriber(sock) as sub:
+            while await sub.wait_async():
+                print(sub.latest["vms"][101]["cpu"])
+
+
+# Reader with a callback: called in the event loop for each new snapshot
+def on_snapshot(root):
+    print(root["vms"][101]["cpu"])
+
+
+async def main():
+    sock = await channel.connect_async(ADDRESS, wait_writer=True)
+    with channel.Subscriber(sock) as sub:
+        sub.attach(on_snapshot)  # calls on_snapshot(sub.latest) for each new snapshot
+        while await sub.wait_async():  # also works with a callback; False — the writer closed or crashed
+            pass
+```
+
+Example: [channel_pubsub_async.py](https://github.com/Aleksandrln/shmobj/blob/master/examples/channel_pubsub_async.py).
+
+Synchronous and asynchronous writers and readers are compatible. For example, an asyncio reader can connect to a
+synchronous writer.
+
+### Files, `bytes` and `mmap`
+
+`dumps()` creates a buffer in the `shmobj` format, and `loads()` opens the structure directly from a supported buffer
+(`bytes`, `mmap`, or another supported type) without copying the underlying data. When multiple processes read the same file, the OS
+serves its pages from the shared file cache.
+
+```python
+import mmap
+import shmobj
+
+data = {"users": [{"id": 1, "name": "Ann", "score": 42}]}
+
+# Save the structure to a file.
+with open("data.shmobj", "wb") as file:
+    file.write(shmobj.dumps(data))
+
+with open("data.shmobj", "rb") as file:  # in each process, file pages come from the shared OS cache
+    root = shmobj.loads(mmap.mmap(file.fileno(), 0, access=mmap.ACCESS_READ))
+```
+
+## Segment lifecycle
+
+- `close()` closes the segment in the current process.
+- `unlink()` removes the segment's name from the OS. Exiting a `with` block calls `close()`. Automatic `unlink()` is
+  performed only for segments created with `unlink_on_close=True`.
+- Proxy objects keep the segment open. Accessing them after `close()` raises `SegmentClosedError`.
+- **Linux and macOS:** a segment is a POSIX shared memory object. On Linux, it is represented by a file in `/dev/shm`
+  and stored in RAM. The segment exists until `unlink()` is called, not merely until its creator exits.
+- **Windows:** the segment is removed after the last handle is closed.
+
+If the entire process group crashes on Linux or macOS, the segment name remains registered with the OS until a reboot
+(or a container restart), or until you run `rm /dev/shm/<name>` on Linux.
+
+More: [Segment lifecycle](https://github.com/Aleksandrln/shmobj/blob/master/doc/usage.md#жизненный-цикл-сегмента).
+
+## Limitations
+
+- **Read-only access.** Published data cannot be modified in place. To update it, publish a new snapshot via
+  [`shmobj.latest`](#shmobjlatest) or [`shmobj.channel`](#pubsub-shmobjchannel).
+- **Supported values:** `dict`, `list`, `tuple` (represented as a list when read), `None`, `bool`, arbitrary-precision
+  `int`, `float`, `str` and `bytes`. Dictionary keys must be scalar values.
+- **macOS — partial support:** `shmobj.channel` is not available (use `shmobj.latest` instead). The package passes the
+  test suite but has not been used in production projects.
+- **Format validation:** accessing corrupted data raises `FormatError`. `validate()` checks the entire buffer.
+- **Docker:** by default, each container has its own `/dev/shm` (64 MB) and its own network. You can work around this
+  by configuring shared IPC and `shm_size` in Compose, or by using a channel over a socket file in a shared volume —
+  [Docker](https://github.com/Aleksandrln/shmobj/blob/master/doc/usage.md#docker).
+
+## Why not use Python's standard tools?
+
+- **`multiprocessing.shared_memory`.** It provides a shared byte buffer, but has no built-in support for nested Python
+  structures. You must serialize the structure (for example, with `pickle`), and each process then deserializes it into
+  its own copy.
+- **`multiprocessing.Manager().dict()`.** The data is managed by a separate server process. Accessing a dictionary item
+  requires an IPC request and serialization.
+- **`fork`.** By itself, it does not guarantee memory savings for Python objects: reference-count updates can trigger
+  copy-on-write, causing memory pages to be copied between processes.
+
+More: [Comparison with alternatives](https://github.com/Aleksandrln/shmobj/blob/master/doc/comparison.md).
+
+## Documentation
+
+- [Guide](https://github.com/Aleksandrln/shmobj/blob/master/doc/usage.md) — segments, files, data validation, `channel`,
+  `latest`, Docker and the debugger.
+- [API Reference](https://github.com/Aleksandrln/shmobj/blob/master/doc/api.md) — the public API.
+- [Build](https://github.com/Aleksandrln/shmobj/blob/master/doc/build.md) — wheel layout and portable builds.
+- [Data format](https://github.com/Aleksandrln/shmobj/blob/master/doc/format.md) and [architecture](https://github.com/Aleksandrln/shmobj/blob/master/doc/architecture.md) — the binary format and internal design.
+- [Development](https://github.com/Aleksandrln/shmobj/blob/master/doc/dev.md) — development environment, checks and repository layout.
+- [Measurements and project status](https://github.com/Aleksandrln/shmobj/blob/master/doc/status.md).
+
+## Building from source
+
+### Quick install from Git
+
+Install directly from the repository (`pip` downloads `maturin` and builds the wheel; Rust is required):
+
+```bash
+pip install git+https://github.com/Aleksandrln/shmobj
+```
+
+### Full build from a project checkout
+
+Requires CPython 3.11+ and stable Rust ([rustup](https://rustup.rs)). On Windows, you also need Visual Studio Build Tools
+with the C++ component. Install Rust on Linux and macOS with:
+
+```bash
+curl --proto '=https' --tlsv1.2 -sSf https://sh.rustup.rs | sh
+```
+
+To build a wheel from a local checkout, install `maturin` in a virtual environment (Debian and Ubuntu block `pip install`
+outside a virtual environment under PEP 668):
+
+```bash
+git clone https://github.com/Aleksandrln/shmobj
+cd shmobj
+python3 -m venv .venv
+. .venv/bin/activate              # Windows: .venv\Scripts\activate
+pip install maturin
+maturin build --release -o dist   # dist/shmobj-<version>-cp311-abi3-<platform>.whl
+maturin sdist -o dist             # source distribution
+```
+
+The wheel can be installed in any CPython 3.11+ environment on the same platform: `pip install dist/shmobj-*.whl`.
+Without `--release`, the build is about 10 times slower. `cargo build --release` builds only the library, not the
+Python package.
+
+Wheel layout and portable builds (older glibc, Windows builds from Linux): [doc/build.md](https://github.com/Aleksandrln/shmobj/blob/master/doc/build.md).
+
+## License
+
+Dual-licensed under [MIT](https://github.com/Aleksandrln/shmobj/blob/master/LICENSE-MIT) or
+[Apache-2.0](https://github.com/Aleksandrln/shmobj/blob/master/LICENSE-APACHE), at your option.
+
+## Author
+
+Created by [AleksandrLn](https://github.com/Aleksandrln) with the help of [Claude](https://claude.ai) by Anthropic.

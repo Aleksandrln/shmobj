@@ -25,6 +25,12 @@ Python: сборка с `abi3-py311` использует только стаб�
 Подсказки типов и докстринги для IDE — `.pyi`: PyCharm и Pylance берут их, а не `__doc__` модуля расширения.
 Докстринги `///` в `crates/shmobj-py` видны в `help()`.
 
+## Готовые колёса
+
+`pip install shmobj` ставит колесо с PyPI. Колёса (abi3, CPython 3.11+) есть для Linux x86_64 и aarch64 (manylinux),
+Windows x64, macOS arm64 и x86_64; их собирает CI ([dev.md](dev.md#ci-и-релиз)), те же файлы — в GitHub Release. На
+остальных платформах `pip` собирает sdist, нужен Rust.
+
 ## Сборка из исходников
 
 Установка Rust, `pip install` из репозитория и `maturin build` из клона — [README](../README.md#сборка-из-исходников).
