@@ -284,8 +284,8 @@ More: [Segment lifecycle](https://github.com/Aleksandrln/shmobj/blob/master/doc/
   [`shmobj.latest`](#shmobjlatest) or [`shmobj.channel`](#pubsub-shmobjchannel).
 - **Supported values:** `dict`, `list`, `tuple` (read back as a list), `None`, `bool`, arbitrary-precision `int`,
   `float`, `str` and `bytes`. Dictionary keys must be scalars.
-- **macOS — partial support:** no `shmobj.channel` (use `shmobj.latest`); the package passes the tests in CI
-  (arm64) but has not been used in production projects; the x86_64 wheel is not tested.
+- **macOS — partial support:** no `shmobj.channel` (use `shmobj.latest`); the package passes the tests
+  but has not been used in production projects.
 - **Format checks:** corrupted data raises `FormatError` when accessed. `validate()` checks the whole buffer.
 - **Docker:** by default each container has its own `/dev/shm` (64 MB) and its own network. This is solved by
   configuration: shared IPC and `shm_size` in compose, or a channel over a socket file in a shared volume —
