@@ -6,7 +6,7 @@ build-backend = "maturin"
 name = "shmobj"
 requires-python = ">=3.11"
 dynamic = ["version"]
-description = "Read-only dict/list/scalars in shared memory without deserialization"
+description = "Zero-copy shared-memory dict/list structures for Python multiprocessing (Rust core)"
 readme = "README.md"
 keywords = ["shared-memory", "multiprocessing", "ipc", "mmap", "zero-copy"]
 license = "MIT OR Apache-2.0"
@@ -22,12 +22,15 @@ classifiers = [
     "Programming Language :: Python :: 3 :: Only",
     "Programming Language :: Python :: Implementation :: CPython",
     "Programming Language :: Rust",
+    "Topic :: Software Development :: Libraries",
     "Topic :: System :: Distributed Computing",
     "Typing :: Typed",
 ]
 
 [project.urls]
 Homepage = "https://github.com/Aleksandrln/shmobj"
+Repository = "https://github.com/Aleksandrln/shmobj"
+Changelog = "https://github.com/Aleksandrln/shmobj/releases"
 Issues = "https://github.com/Aleksandrln/shmobj/issues"
 Author = "https://github.com/Aleksandrln"
 

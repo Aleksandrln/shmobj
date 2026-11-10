@@ -24,40 +24,45 @@
 |               4 |                                  2,5 ГБ |                                  168 МБ |
 |               8 |                                  5,0 ГБ |                                  168 МБ |
 
-Дополнительные замеры: [doc/status.md](doc/status.md).
+Дополнительные замеры: [doc/status.md](https://github.com/Aleksandrln/shmobj/blob/master/doc/status.md).
 
 Подключение к готовому сегменту занимает около 50 мкс, тогда как `pickle.loads` для того же набора — около 1,5 с.
 Плата — доступ по ключу в 3–6 раз медленнее, чем у обычного `dict`. Для ускорения последовательного чтения и частого
 доступа предусмотрены `get_many()`, `iter_values()`, `iter_items()` и `materialize()`.
 
-Подробнее о производительности и способах доступа: [Скорость доступа](doc/usage.md#скорость-доступа).
+Подробнее о производительности и способах доступа: [Скорость доступа](https://github.com/Aleksandrln/shmobj/blob/master/doc/usage.md#скорость-доступа).
 
 ## Установка
 
-Готовые колёса доступны на [странице релизов](https://github.com/Aleksandrln/shmobj/releases).   
-Скачайте колесо для своей платформы и установите его:
+```bash
+pip install shmobj
+```
+
+Готовые колёса:
+
+- **Python:** CPython 3.11 и новее;
+- **Linux:** x86_64, aarch64;
+- **Windows:** x64;
+- **macOS:** arm64, x86_64.
+
+На других платформах pip собирает пакет из sdist, для этого нужен Rust ([сборка из исходников](#сборка-из-исходников)).
+
+Те же колёса есть на [странице релизов](https://github.com/Aleksandrln/shmobj/releases):
 
 ```bash
 pip install ./shmobj-<version>-cp311-abi3-<platform>.whl
 ```
 
-Можно собрать [из исходников](#сборка-из-исходников).
-
-- **Python:** CPython 3.11 и новее;
-- **Linux:** x86_64, aarch64;
-- **Windows:** x64;
-- **macOS:** arm64.
-
 ## Основные сценарии
 
-| Сценарий                                        | API                     | Пример                                          |
-|-------------------------------------------------|-------------------------|-------------------------------------------------|
-| Один набор данных для нескольких процессов      | `create()` / `attach()` | [shared_pool.py](examples/shared_pool.py)       |
-| Читателям нужен последний опубликованный снимок | `shmobj.latest`         | [latest_pubsub.py](examples/latest_pubsub.py)   |
-| Подписка на новые снимки без постоянного опроса | `shmobj.channel`        | [channel_pubsub.py](examples/channel_pubsub.py) |
-| Чтение данных из файла или `bytes`              | `dumps()` / `loads()`   | [file_mmap.py](examples/file_mmap.py)           |
+| Сценарий                                        | API                     | Пример                                                                                            |
+|-------------------------------------------------|-------------------------|---------------------------------------------------------------------------------------------------|
+| Один набор данных для нескольких процессов      | `create()` / `attach()` | [shared_pool.py](https://github.com/Aleksandrln/shmobj/blob/master/examples/shared_pool.py)       |
+| Читателям нужен последний опубликованный снимок | `shmobj.latest`         | [latest_pubsub.py](https://github.com/Aleksandrln/shmobj/blob/master/examples/latest_pubsub.py)   |
+| Подписка на новые снимки без постоянного опроса | `shmobj.channel`        | [channel_pubsub.py](https://github.com/Aleksandrln/shmobj/blob/master/examples/channel_pubsub.py) |
+| Чтение данных из файла или `bytes`              | `dumps()` / `loads()`   | [file_mmap.py](https://github.com/Aleksandrln/shmobj/blob/master/examples/file_mmap.py)           |
 
-Все примеры находятся в каталоге [examples](examples/README.md).  
+Все примеры находятся в каталоге [examples](https://github.com/Aleksandrln/shmobj/blob/master/examples/README.md).  
 Внимание! Перед запуском примеров нужно [установить `shmobj`](#установка).
 
 ### Общий набор данных
@@ -92,7 +97,7 @@ with shmobj.attach(segment.name) as segment:
 `FrozenDict` и `FrozenList` реализуют интерфейсы `Mapping` и `Sequence`, поэтому с ними можно работать как с привычными
 `dict` и `list`.
 
-То же самое с `multiprocessing` ([shared_pool.py](examples/shared_pool.py)):
+То же самое с `multiprocessing` ([shared_pool.py](https://github.com/Aleksandrln/shmobj/blob/master/examples/shared_pool.py)):
 
 ```python
 import multiprocessing
@@ -137,7 +142,7 @@ root = reader.get()  # None — снимков ещё не было; тот же
 Пока снимок не изменился, `get()` возвращает тот же объект. Читатель узнаёт об обновлении только при очередном вызове
 `get()`.
 
-Пример: [latest_pubsub.py](examples/latest_pubsub.py).
+Пример: [latest_pubsub.py](https://github.com/Aleksandrln/shmobj/blob/master/examples/latest_pubsub.py).
 
 **Очистка после аварийного завершения.** На Linux и macOS имена сегментов могут оставаться в ОС после падения писателя.
 На Linux они находятся в `/dev/shm`. Такие сегменты сохраняются до перезагрузки, перезапуска контейнера или следующего
@@ -181,7 +186,7 @@ while True:
             print(sub.latest["vms"][101]["cpu"])  # FrozenDict поверх общей памяти
 ```
 
-Пример: [channel_pubsub.py](examples/channel_pubsub.py)
+Пример: [channel_pubsub.py](https://github.com/Aleksandrln/shmobj/blob/master/examples/channel_pubsub.py)
 
 #### asyncio API
 
@@ -228,7 +233,7 @@ async def main():
             pass
 ```
 
-Пример: [channel_pubsub_async.py](examples/channel_pubsub_async.py).
+Пример: [channel_pubsub_async.py](https://github.com/Aleksandrln/shmobj/blob/master/examples/channel_pubsub_async.py).
 
 Синхронные и асинхронные писатели и читатели совместимы: например, asyncio-читатель может подключиться к синхронному
 писателю.
@@ -266,7 +271,7 @@ with open("data.shmobj", "rb") as file:  # в каждом процессе: с�
 Если на Linux или macOS аварийно завершилась вся группа процессов, имя сегмента остаётся в ОС до перезагрузки
 (в контейнере — до его перезапуска) или `rm /dev/shm/<имя>` на Linux.
 
-Подробнее: [Жизненный цикл сегмента](doc/usage.md#жизненный-цикл-сегмента).
+Подробнее: [Жизненный цикл сегмента](https://github.com/Aleksandrln/shmobj/blob/master/doc/usage.md#жизненный-цикл-сегмента).
 
 ## Ограничения
 
@@ -278,7 +283,7 @@ with open("data.shmobj", "rb") as file:  # в каждом процессе: с�
 - **Проверка формата:** повреждённые данные приводят к `FormatError` при обращении к ним. Метод `validate()` проверяет
   весь буфер.
 - **Docker:** по умолчанию у каждого контейнера свой `/dev/shm` (64 МБ) и своя сеть. Это решается настройкой:
-  общий IPC и `shm_size` в compose или канал через сокет-файл в общем томе — [Docker](doc/usage.md#docker).
+  общий IPC и `shm_size` в compose или канал через сокет-файл в общем томе — [Docker](https://github.com/Aleksandrln/shmobj/blob/master/doc/usage.md#docker).
 
 ## Почему не стандартные средства Python
 
@@ -289,26 +294,22 @@ with open("data.shmobj", "rb") as file:  # в каждом процессе: с�
 - **`fork`.** Сам по себе не гарантирует экономию памяти для Python-объектов: изменение счётчиков ссылок может приводить
   к copy-on-write и копированию страниц между процессами.
 
-Подробнее: [Сравнение с альтернативами](doc/comparison.md).
+Подробнее: [Сравнение с альтернативами](https://github.com/Aleksandrln/shmobj/blob/master/doc/comparison.md).
 
 ## Документация
 
-- [Руководство](doc/usage.md) — сегменты, файлы, проверка данных, `channel`, `latest`, Docker и отладчик.
-- [API Reference](doc/api.md) — описание публичного API.
-- [Сборка](doc/build.md) — устройство колеса и переносимые сборки.
-- [Формат данных](doc/format.md) и [архитектура](doc/architecture.md) — бинарный формат и внутреннее устройство.
-- [Разработка](doc/dev.md) — окружение, проверки и раскладка репозитория.
-- [Замеры и состояние проекта](doc/status.md).
+- [Руководство](https://github.com/Aleksandrln/shmobj/blob/master/doc/usage.md) — сегменты, файлы, проверка данных, `channel`, `latest`, Docker и отладчик.
+- [API Reference](https://github.com/Aleksandrln/shmobj/blob/master/doc/api.md) — описание публичного API.
+- [Сборка](https://github.com/Aleksandrln/shmobj/blob/master/doc/build.md) — устройство колеса и переносимые сборки.
+- [Формат данных](https://github.com/Aleksandrln/shmobj/blob/master/doc/format.md) и [архитектура](https://github.com/Aleksandrln/shmobj/blob/master/doc/architecture.md) — бинарный формат и внутреннее устройство.
+- [Разработка](https://github.com/Aleksandrln/shmobj/blob/master/doc/dev.md) — окружение, проверки и раскладка репозитория.
+- [Замеры и состояние проекта](https://github.com/Aleksandrln/shmobj/blob/master/doc/status.md).
 
 ## Сборка из исходников
 
 ### Вариант для ленивых
 
-```bash
-pip install ./shmobj-<version>-cp311-abi3-<platform>.whl
-```
-
-Или, прямо из репозитория. (pip сам скачает maturin и соберёт колесо):
+Прямо из репозитория (pip сам скачает maturin и соберёт колесо, нужен Rust):
 
 ```bash
 pip install git+https://github.com/Aleksandrln/shmobj
@@ -338,11 +339,11 @@ maturin sdist -o dist             # исходники
 Колесо ставится в любое окружение с CPython 3.11+ на той же платформе: `pip install dist/shmobj-*.whl`. Без
 `--release` сборка примерно в 10 раз медленнее. `cargo build --release` собирает только библиотеку, а не пакет.
 
-Устройство колеса и переносимые сборки (старая glibc, Windows из Linux): [doc/build.md](doc/build.md).
+Устройство колеса и переносимые сборки (старая glibc, Windows из Linux): [doc/build.md](https://github.com/Aleksandrln/shmobj/blob/master/doc/build.md).
 
 ## Лицензия
 
-Двойное лицензирование: на выбор [MIT](LICENSE-MIT) или [Apache-2.0](LICENSE-APACHE).
+Двойное лицензирование: на выбор [MIT](https://github.com/Aleksandrln/shmobj/blob/master/LICENSE-MIT) или [Apache-2.0](https://github.com/Aleksandrln/shmobj/blob/master/LICENSE-APACHE).
 
 ## Авторство
 

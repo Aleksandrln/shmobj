@@ -1,9 +1,18 @@
 name: ci
-# Только вручную и по тегу: репозиторий приватный, минуты Actions платные сверх квоты (macOS ×10, Windows ×2).
+# Проверки — на push в master и PR; колёса и sdist — по тегу v* и вручную.
+# Тег v<версия> — GitHub Release и PyPI; ручной запуск с publish=testpypi — TestPyPI.
 on:
   push:
+    branches: [master]
     tags: ["v*"]
-  workflow_dispatch:  # ручной запуск: проверки, колёса и sdist без релиза
+  pull_request:
+  workflow_dispatch:
+    inputs:
+      publish:
+        description: "Куда выложить пакеты"
+        type: choice
+        options: [none, testpypi]
+        default: none
 
 jobs:
   rust:
@@ -31,7 +40,25 @@ jobs:
       - run: maturin build --release -o dist && pip install --no-index --find-links dist shmobj
       - run: pytest
 
+  # Тег v<версия>: коммит из master, версия совпадает с crates/shmobj-py/Cargo.toml. Без этого ни release, ни pypi:
+  # версию на PyPI нельзя перезаписать, удалённый номер нельзя использовать повторно.
+  version:
+    if: startsWith(github.ref, 'refs/tags/v')
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+        with: { fetch-depth: 0 }  # история и ветки — для проверки принадлежности master
+      - name: Тег на коммите из master
+        run: |
+          git merge-base --is-ancestor "$GITHUB_SHA" origin/master \
+            || { echo "коммит тега $GITHUB_REF_NAME не входит в master"; exit 1; }
+      - name: Версия тега и пакета
+        run: |
+          version=$(grep -m1 '^version' crates/shmobj-py/Cargo.toml | cut -d'"' -f2)
+          test "${GITHUB_REF_NAME#v}" = "$version" || { echo "тег $GITHUB_REF_NAME, версия пакета $version"; exit 1; }
+
   wheels:
+    if: startsWith(github.ref, 'refs/tags/v') || github.event_name == 'workflow_dispatch'
     needs: [rust, python]
     strategy:
       matrix:
@@ -40,6 +67,7 @@ jobs:
           - { os: ubuntu-latest, target: aarch64, manylinux: auto }
           - { os: windows-latest, target: x64 }
           - { os: macos-latest, target: aarch64 }
+          - { os: macos-latest, target: x86_64 }  # кросс-сборка на arm-раннере; без колеса pip на Intel требует Rust
     runs-on: ${{ matrix.os }}
     steps:
       - uses: actions/checkout@v4
@@ -52,6 +80,7 @@ jobs:
         with: { name: "wheel-${{ matrix.os }}-${{ matrix.target }}", path: dist }
 
   sdist:
+    if: startsWith(github.ref, 'refs/tags/v') || github.event_name == 'workflow_dispatch'
     needs: [rust, python]
     runs-on: ubuntu-latest
     steps:
@@ -63,19 +92,15 @@ jobs:
       - uses: actions/upload-artifact@v4
         with: { name: sdist, path: dist }
 
-  # Тег v<версия> — колёса и sdist в GitHub Release; версия тега должна совпадать с crates/shmobj-py/Cargo.toml.
+  # Тег v<версия> — колёса и sdist в GitHub Release.
   # Релиз, созданный в интерфейсе вместе с тегом, получает файлы; без него релиз создаётся.
   release:
     if: startsWith(github.ref, 'refs/tags/v')
-    needs: [wheels, sdist]
+    needs: [version, wheels, sdist]
     runs-on: ubuntu-latest
     permissions: { contents: write }
     steps:
       - uses: actions/checkout@v4
-      - name: Версия тега и пакета
-        run: |
-          version=$(grep -m1 '^version' crates/shmobj-py/Cargo.toml | cut -d'"' -f2)
-          test "${GITHUB_REF_NAME#v}" = "$version" || { echo "тег $GITHUB_REF_NAME, версия пакета $version"; exit 1; }
       - uses: actions/download-artifact@v4
         with: { path: dist, merge-multiple: true }
       - name: Релиз
@@ -86,3 +111,30 @@ jobs:
             gh release create "$GITHUB_REF_NAME" dist/* --verify-tag --generate-notes
           fi
         env: { GH_TOKEN: "${{ github.token }}" }
+
+  # Trusted Publishing (OIDC): издатель на pypi.org / test.pypi.org привязан к ci.yml и окружению; токенов нет.
+  # gh-action-pypi-publish проверяет метаданные (twine check) и прикладывает аттестации (PEP 740).
+  pypi:
+    if: startsWith(github.ref, 'refs/tags/v')
+    needs: [version, wheels, sdist]
+    runs-on: ubuntu-latest
+    environment: pypi
+    permissions: { id-token: write }
+    steps:
+      - uses: actions/download-artifact@v4
+        with: { path: dist, merge-multiple: true }
+      - uses: pypa/gh-action-pypi-publish@release/v1
+
+  testpypi:
+    if: github.event_name == 'workflow_dispatch' && inputs.publish == 'testpypi'
+    needs: [wheels, sdist]
+    runs-on: ubuntu-latest
+    environment: testpypi
+    permissions: { id-token: write }
+    steps:
+      - uses: actions/download-artifact@v4
+        with: { path: dist, merge-multiple: true }
+      - uses: pypa/gh-action-pypi-publish@release/v1
+        with:
+          repository-url: https://test.pypi.org/legacy/
+          skip-existing: true

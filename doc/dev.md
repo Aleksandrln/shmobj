@@ -16,7 +16,7 @@ maturin develop --release        # собрать shmobj._core и постави
 Сборка колеса и sdist — [README](../README.md#сборка-из-исходников), переносимые сборки — [build.md](build.md).
 
 Версия пакета — `version` в `crates/shmobj-py/Cargo.toml` (`pyproject.toml` берёт её оттуда, `dynamic`),
-у `crates/shmobj-core` — та же. До первого выпуска — `0.1.0`.
+у `crates/shmobj-core` — та же. Выпуск — [CI и релиз](#ci-и-релиз).
 
 ## Проверки
 
@@ -64,8 +64,10 @@ pytest                            # tests/: golden, сверка с эталон
   `LICENSE-APACHE`, `license-files` кладёт их в колесо (`.dist-info/licenses/`) и sdist. Автор и ссылки на GitHub —
   строка copyright в `LICENSE-MIT`, `authors`/`repository` в `Cargo.toml` (workspace), `authors` и `[project.urls]`
   в `pyproject.toml`; текст `LICENSE-APACHE` не меняется.
-- `pyproject.toml`: `readme = "README.md"` — описание пакета в метаданных колеса и sdist (ссылки в нём
-  относительные: рассчитаны на GitHub); `classifiers`, `keywords`.
+- `pyproject.toml`: `readme = "README.md"` — описание пакета в метаданных колеса и sdist, его показывает PyPI.
+  Ссылки на файлы репозитория в README — абсолютные (`https://github.com/Aleksandrln/shmobj/blob/master/...`):
+  на PyPI относительные битые. `description` совпадает с About на GitHub; `classifiers` без `License ::` —
+  лицензия задана выражением (PEP 639); `[project.urls]` — боковая панель на PyPI.
 - `rustfmt.toml`: `max_width = 120`.
 - `shmobj-core`: `[lints]` запрещают `unsafe`, `panic`, `unwrap`, индексацию без проверки.
 - `shmobj-py` не зависит от `xxhash-rust` напрямую: хэш считается в `shmobj-core`.
@@ -73,3 +75,37 @@ pytest                            # tests/: golden, сверка с эталон
   едет в колесо рядом с `shmobj`. В `pydevd_plugins/` и `extensions/` нет `__init__.py`: пакеты
   принадлежат pydevd, плагин — только часть пространства имён. Проверка — `tests/test_debugger.py`
   (нужен `pydevd-pycharm`, без него тест пропускается).
+
+## CI и релиз
+
+`.github/workflows/ci.yml`:
+
+| Job | Когда | Что |
+|---|---|---|
+| `rust`, `python` | push в `master`, PR, тег, ручной запуск | fmt, clippy, тесты ядра; эталон и pytest на Linux, Windows, macOS × Python 3.11, 3.14 |
+| `wheels`, `sdist` | тег `v*`, ручной запуск | Колёса abi3 cp311: Linux x86_64/aarch64, Windows x64, macOS arm64/x86_64 (x86_64 — кросс-сборка на arm-раннере); sdist |
+| `version` | тег `v*` | Коммит тега входит в `master`, версия тега = `version` в `crates/shmobj-py/Cargo.toml` |
+| `release` | тег `v*`, после `version`, `wheels`, `sdist` | Файлы в GitHub Release; релиз, созданный в интерфейсе вместе с тегом, дополняется |
+| `pypi` | тег `v*`, после `version`, `wheels`, `sdist` | Выкладка на pypi.org, окружение `pypi` |
+| `testpypi` | ручной запуск с `publish=testpypi` | Выкладка на test.pypi.org, окружение `testpypi`; уже выложенные файлы пропускаются |
+
+Публикация — Trusted Publishing (OIDC), токенов в секретах нет; `pypa/gh-action-pypi-publish` проверяет метаданные
+и прикладывает аттестации (PEP 740). Версию на PyPI нельзя перезаписать, номер удалённой нельзя использовать повторно.
+
+Настройка вне репозитория:
+
+- pypi.org и test.pypi.org, *Publishing*: проект `shmobj`, owner `Aleksandrln`, repository `shmobj`, workflow
+  `ci.yml`, environment `pypi` и `testpypi` соответственно.
+- GitHub, *Settings → Environments*: `pypi` (*Deployment branches and tags* — только теги `v*`; по желанию
+  *Required reviewers*) и `testpypi`.
+- GitHub, *Settings → Rules → Rulesets*: tag ruleset на `v*` — *Restrict creations*, *updates*, *deletions*, в
+  *Bypass list* — Repository admin. Правило окружения проверяет только имя тега; принадлежность коммита `master` —
+  job `version`.
+
+Порядок релиза:
+
+1. Поднять `version` в `crates/shmobj-py/Cargo.toml` и `crates/shmobj-core/Cargo.toml` (и в `Cargo.lock`), коммит
+   в `master`.
+2. *Actions → ci → Run workflow* с `publish=testpypi`, проверка установки в чистом venv:
+   `pip install -i https://test.pypi.org/simple/ shmobj`.
+3. `git tag v<версия> && git push origin v<версия>` → GitHub Release и PyPI.
