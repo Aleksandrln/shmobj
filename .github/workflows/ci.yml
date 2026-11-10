@@ -1,17 +1,15 @@
 name: ci
-# Проверки — на push в master и PR; колёса и sdist — по тегу v* и вручную.
-# Тег v<версия> — GitHub Release и PyPI; ручной запуск с publish=testpypi — TestPyPI.
+# Проверки, колёса и sdist — по тегу v* и вручную. Тег v<версия> — GitHub Release.
+# Ручной запуск: publish=testpypi — TestPyPI (любая ветка), publish=pypi — PyPI (только от тега v*).
 on:
   push:
-    branches: [master]
     tags: ["v*"]
-  pull_request:
   workflow_dispatch:
     inputs:
       publish:
-        description: "Куда выложить пакеты"
+        description: "Куда выложить пакеты (pypi — только от тега v*)"
         type: choice
-        options: [none, testpypi]
+        options: [none, testpypi, pypi]
         default: none
 
 jobs:
@@ -43,13 +41,14 @@ jobs:
   # Тег v<версия>: коммит из master, версия совпадает с crates/shmobj-py/Cargo.toml. Без этого ни release, ни pypi:
   # версию на PyPI нельзя перезаписать, удалённый номер нельзя использовать повторно.
   version:
-    if: startsWith(github.ref, 'refs/tags/v')
+    if: startsWith(github.ref, 'refs/tags/v') || inputs.publish == 'pypi'
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v4
         with: { fetch-depth: 0 }  # история и ветки — для проверки принадлежности master
       - name: Тег на коммите из master
         run: |
+          [[ "$GITHUB_REF" == refs/tags/v* ]] || { echo "publish=pypi — только запуск от тега v*, сейчас $GITHUB_REF"; exit 1; }
           git merge-base --is-ancestor "$GITHUB_SHA" origin/master \
             || { echo "коммит тега $GITHUB_REF_NAME не входит в master"; exit 1; }
       - name: Версия тега и пакета
@@ -58,7 +57,6 @@ jobs:
           test "${GITHUB_REF_NAME#v}" = "$version" || { echo "тег $GITHUB_REF_NAME, версия пакета $version"; exit 1; }
 
   wheels:
-    if: startsWith(github.ref, 'refs/tags/v') || github.event_name == 'workflow_dispatch'
     needs: [rust, python]
     strategy:
       matrix:
@@ -80,7 +78,6 @@ jobs:
         with: { name: "wheel-${{ matrix.os }}-${{ matrix.target }}", path: dist }
 
   sdist:
-    if: startsWith(github.ref, 'refs/tags/v') || github.event_name == 'workflow_dispatch'
     needs: [rust, python]
     runs-on: ubuntu-latest
     steps:
@@ -92,10 +89,10 @@ jobs:
       - uses: actions/upload-artifact@v4
         with: { name: sdist, path: dist }
 
-  # Тег v<версия> — колёса и sdist в GitHub Release.
+  # Push тега v<версия> — колёса и sdist в GitHub Release.
   # Релиз, созданный в интерфейсе вместе с тегом, получает файлы; без него релиз создаётся.
   release:
-    if: startsWith(github.ref, 'refs/tags/v')
+    if: github.event_name == 'push' && startsWith(github.ref, 'refs/tags/v')
     needs: [version, wheels, sdist]
     runs-on: ubuntu-latest
     permissions: { contents: write }
@@ -115,7 +112,7 @@ jobs:
   # Trusted Publishing (OIDC): издатель на pypi.org / test.pypi.org привязан к ci.yml и окружению; токенов нет.
   # gh-action-pypi-publish проверяет метаданные (twine check) и прикладывает аттестации (PEP 740).
   pypi:
-    if: startsWith(github.ref, 'refs/tags/v')
+    if: github.event_name == 'workflow_dispatch' && inputs.publish == 'pypi'
     needs: [version, wheels, sdist]
     runs-on: ubuntu-latest
     environment: pypi

@@ -82,11 +82,11 @@ pytest                            # tests/: golden, сверка с эталон
 
 | Job | Когда | Что |
 |---|---|---|
-| `rust`, `python` | push в `master`, PR, тег, ручной запуск | fmt, clippy, тесты ядра; эталон и pytest на Linux, Windows, macOS × Python 3.11, 3.14 |
+| `rust`, `python` | тег `v*`, ручной запуск | fmt, clippy, тесты ядра; эталон и pytest на Linux, Windows, macOS × Python 3.11, 3.14 |
 | `wheels`, `sdist` | тег `v*`, ручной запуск | Колёса abi3 cp311: Linux x86_64/aarch64, Windows x64, macOS arm64/x86_64 (x86_64 — кросс-сборка на arm-раннере); sdist |
-| `version` | тег `v*` | Коммит тега входит в `master`, версия тега = `version` в `crates/shmobj-py/Cargo.toml` |
-| `release` | тег `v*`, после `version`, `wheels`, `sdist` | Файлы в GitHub Release; релиз, созданный в интерфейсе вместе с тегом, дополняется |
-| `pypi` | тег `v*`, после `version`, `wheels`, `sdist` | Выкладка на pypi.org, окружение `pypi` |
+| `version` | тег `v*`, ручной запуск с `publish=pypi` | Запуск от тега, коммит тега входит в `master`, версия тега = `version` в `crates/shmobj-py/Cargo.toml` |
+| `release` | push тега `v*`, после `version`, `wheels`, `sdist` | Файлы в GitHub Release; релиз, созданный в интерфейсе вместе с тегом, дополняется |
+| `pypi` | ручной запуск от тега `v*` с `publish=pypi`, после `version`, `wheels`, `sdist` | Выкладка на pypi.org, окружение `pypi` |
 | `testpypi` | ручной запуск с `publish=testpypi` | Выкладка на test.pypi.org, окружение `testpypi`; уже выложенные файлы пропускаются |
 
 Публикация — Trusted Publishing (OIDC), токенов в секретах нет; `pypa/gh-action-pypi-publish` проверяет метаданные
@@ -108,4 +108,6 @@ pytest                            # tests/: golden, сверка с эталон
    в `master`.
 2. *Actions → ci → Run workflow* с `publish=testpypi`, проверка установки в чистом venv:
    `pip install -i https://test.pypi.org/simple/ shmobj`.
-3. `git tag v<версия> && git push origin v<версия>` → GitHub Release и PyPI.
+3. `git tag v<версия> && git push origin v<версия>` → проверки, колёса, GitHub Release.
+4. *Actions → ci → Run workflow*, *Use workflow from* — тег `v<версия>`, `publish=pypi` → PyPI
+   (`gh workflow run ci.yml --ref v<версия> -f publish=pypi`). Колёса собираются заново.
