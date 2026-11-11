@@ -23,9 +23,10 @@ has its own memory space, so data loaded into each process is duplicated. For ex
 
 `shmobj` solves this by storing the data once in shared memory. All processes access the same structure without copying or deserializing it.
 
-But sharing the data is only part of the job: other processes also need to learn about updates to it. Unlike threads,
-processes do not see changes in each other's memory, so updates are sent through something like `multiprocessing.Queue`:
-the data is serialized on send, transferred to the receiving process, and rebuilt there as a separate copy.
+But sharing data is only part of the problem: other processes also need to be notified when that data changes. Unlike
+threads, processes do not share the same address space, so they cannot directly see changes in each other's memory.
+Updates are typically sent through mechanisms such as `multiprocessing.Queue`, where data is serialized by the sending
+process, transferred, and deserialized into a separate copy in the receiving process.
 
 `shmobj` handles this too: the writer publishes a new snapshot once, and readers access it without copying — by name via
 [`shmobj.latest`](#shmobjlatest) or by subscription via [`shmobj.channel`](#pubsub-shmobjchannel).
