@@ -3,7 +3,8 @@
 **English** | [Русский](https://github.com/Aleksandrln/shmobj/blob/master/README.md)
 
 Arbitrarily nested `dict`/`list`-like structures in shared memory (via `mmap`), accessible from multiple processes without
-copying or deserialization.
+copying or deserialization. Processes also exchange data through them: a writer publishes new versions and readers receive
+them ([`shmobj.latest`](#shmobjlatest), pub/sub [`shmobj.channel`](#pubsub-shmobjchannel)).
 
 `shmobj` provides the `FrozenDict` (`Mapping`) and `FrozenList` (`Sequence`) proxy objects for accessing data in shared
 memory. The data is stored in memory only once. All processes access the same shared structure, and Python objects are
