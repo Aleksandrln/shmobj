@@ -23,8 +23,14 @@ has its own memory space, so data loaded into each process is duplicated. For ex
 
 `shmobj` solves this by storing the data once in shared memory. All processes access the same structure without copying or deserializing it.
 
-Unlike threads, processes do not see changes made in each other's memory. `shmobj` solves this problem too:
-[`shmobj.latest`](#shmobjlatest) and [`shmobj.channel`](#pubsub-shmobjchannel).
+The second task is delivering updated data to other processes. Unlike threads, processes do not see changes in each
+other's memory, so updates are usually sent through something like `multiprocessing.Queue`: the data is serialized and
+copied into every receiving process.
+
+`shmobj` handles this too: the writer publishes a new snapshot once, and readers access it without copying — by name via
+[`shmobj.latest`](#shmobjlatest) or by subscription via [`shmobj.channel`](#pubsub-shmobjchannel).
+
+The measurements below refer to the shared dataset.
 
 ### Memory usage
 
