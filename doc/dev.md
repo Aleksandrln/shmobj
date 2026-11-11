@@ -68,7 +68,7 @@ pytest                            # tests/: golden, сверка с эталон
 - README в двух файлах: `README.md` (русский) показывает GitHub, `README.en.md` (английский) — `readme`
   в `pyproject.toml`, описание пакета в метаданных колеса и sdist, его показывает PyPI. Правятся вместе, разделы
   и примеры совпадают. Ссылки на файлы репозитория в обоих — абсолютные
-  (`https://github.com/Aleksandrln/shmobj/blob/master/...`): на PyPI относительные битые. `description` совпадает с About на GitHub (About и Topics правятся вручную в настройках репозитория, Topics — по `keywords`); `classifiers` без `License ::` —
+  (`https://github.com/Aleksandrln/shmobj/blob/master/...`): на PyPI относительные битые. `description` совпадает с About на GitHub (About и Topics правятся вручную в настройках репозитория, Topics — по `keywords`); `classifiers`: версии Python — от `requires-python` до последней в матрице CI (колесо abi3, бейдж в README берёт их отсюда), без `License ::` —
   лицензия задана выражением (PEP 639); `[project.urls]` — боковая панель на PyPI.
 - `rustfmt.toml`: `max_width = 120`.
 - `shmobj-core`: `[lints]` запрещают `unsafe`, `panic`, `unwrap`, индексацию без проверки.
