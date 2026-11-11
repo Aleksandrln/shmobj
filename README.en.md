@@ -7,12 +7,14 @@
 
 Arbitrarily nested `dict`/`list`-like structures in shared memory (via `mmap`), accessible from multiple processes without
 copying or deserialization.
-Changes made to one process's local memory are not visible to other processes. `shmobj` provides mechanisms for sharing updates as well:
-[`shmobj.latest`](#shmobjlatest) and [`shmobj.channel`](#pubsub-shmobjchannel).
 
 `shmobj` provides the `FrozenDict` (`Mapping`) and `FrozenList` (`Sequence`) proxy objects for accessing data in shared
 memory. The data is stored in memory only once. All processes access the same shared structure, and Python objects are
 created only for the values that are actually accessed.
+
+`shmobj` also provides mechanisms for sharing up-to-date data snapshots between processes:
+[`shmobj.latest`](#shmobjlatest) returns the latest snapshot published under a given name, and
+[`shmobj.channel`](#pubsub-shmobjchannel) delivers new snapshots to subscribers (pub/sub).
 
 ## Why shmobj?
 
@@ -20,6 +22,9 @@ CPU-bound Python workloads often use multiple processes to run computations in p
 has its own memory space, so data loaded into each process is duplicated. For example, an 8-process workload using a 100 MB lookup table can consume around 800 MB.
 
 `shmobj` solves this by storing the data once in shared memory. All processes access the same structure without copying or deserializing it.
+
+Unlike threads, processes do not see changes made in each other's memory. `shmobj` solves this problem too:
+[`shmobj.latest`](#shmobjlatest) and [`shmobj.channel`](#pubsub-shmobjchannel).
 
 ### Memory usage
 
