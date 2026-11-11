@@ -2,6 +2,9 @@
 
 **English** | [Русский](https://github.com/Aleksandrln/shmobj/blob/master/README.md)
 
+[![PyPI](https://img.shields.io/pypi/v/shmobj)](https://pypi.org/project/shmobj/)
+[![Python](https://img.shields.io/pypi/pyversions/shmobj)](https://pypi.org/project/shmobj/)
+
 Arbitrarily nested `dict`/`list`-like structures in shared memory (via `mmap`), accessible from multiple processes without
 copying or deserialization. Processes also exchange data through them: a writer publishes new versions and readers receive
 them ([`shmobj.latest`](#shmobjlatest), pub/sub [`shmobj.channel`](#pubsub-shmobjchannel)).

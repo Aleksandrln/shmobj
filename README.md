@@ -2,6 +2,9 @@
 
 [English](https://github.com/Aleksandrln/shmobj/blob/master/README.en.md) | **Русский**
 
+[![PyPI](https://img.shields.io/pypi/v/shmobj)](https://pypi.org/project/shmobj/)
+[![Python](https://img.shields.io/pypi/pyversions/shmobj)](https://pypi.org/project/shmobj/)
+
 `dict`/`list`-подобные структуры с неограниченным уровнем вложенности в разделяемой памяти (через `mmap`) и доступ к ним
 из нескольких процессов без копирования и десериализации. Через них же процессы обмениваются данными: писатель публикует
 новые версии, читатели получают их ([`shmobj.latest`](#shmobjlatest), pub/sub [`shmobj.channel`](#pubsub-shmobjchannel)).
