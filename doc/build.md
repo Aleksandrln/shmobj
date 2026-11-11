@@ -27,7 +27,7 @@ Python: сборка с `abi3-py311` использует только стаб�
 
 ## Готовые колёса
 
-`pip install shmobj` ставит колесо с PyPI. Колёса (abi3, CPython 3.11+) есть для Linux x86_64 и aarch64 (manylinux),
+`pip install shmobj` ставит колесо с PyPI. Колёса (abi3, CPython 3.11+) есть для Linux x86_64 и aarch64 (manylinux и musllinux_1_2),
 Windows x64, macOS arm64 и x86_64; их собирает CI ([dev.md](dev.md#ci-и-релиз)), те же файлы — в GitHub Release. На
 остальных платформах `pip` собирает sdist, нужен Rust.
 

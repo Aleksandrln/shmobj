@@ -11,26 +11,53 @@ created only for the values that are actually accessed.
 
 ## Why shmobj?
 
-CPU-bound Python workloads often use multiple processes to work around the GIL. Each process would normally keep its own
-copy of the data. For example, a 100 MB lookup table, configuration, or metrics dataset shared across 8 workers would
-consume about 800 MB of memory. `shmobj` keeps a single shared copy instead.
+CPU-bound Python workloads often use multiple processes to run computations in parallel and work around the GIL. Each process
+has its own memory space, so data loaded into each process is duplicated. For example, an 8-process workload using a 100 MB lookup table can consume around 800 MB.
 
-Benchmark: one million records with a structure like `{"id", "name", "score", "tags": [...], "ok", "x"}`. Each
-process iterated over every record.
+`shmobj` solves this by storing the data once in shared memory. All processes access the same structure without copying or deserializing it.
 
-| Processes | `pickle` — total memory usage | `shmobj` — total memory usage |
-|----------:|------------------------------:|------------------------------:|
-|         1 |                        628 MB |                        168 MB |
-|         4 |                        2.5 GB |                        168 MB |
-|         8 |                        5.0 GB |                        168 MB |
+Changes made to one process's local memory are not visible to other processes. `shmobj` provides mechanisms for sharing updates as well:
+[`shmobj.latest`](#shmobjlatest) and [`shmobj.channel`](#pubsub-shmobjchannel).
 
-More measurements: [doc/status.md](https://github.com/Aleksandrln/shmobj/blob/master/doc/status.md).
+### Memory usage
 
-Attaching to an existing segment takes about 50 µs, compared with about 1.5 s for `pickle.loads` on the same dataset.
-The trade-off is that key lookups are 3–6 times slower than in a regular `dict`. `get_many()`, `iter_values()`,
-`iter_items()` and `materialize()` help speed up sequential reads and repeated access.
+Dataset: one million records with the structure `{"id", "name", "score", "tags": [...], "ok", "x"}`. Each process iterated over the entire dataset.
 
-More on performance and access patterns: [Access speed](https://github.com/Aleksandrln/shmobj/blob/master/doc/usage.md#скорость-доступа).
+| Processes | `pickle` — total memory | `shmobj` — total memory |
+|----------:|------------------------:|------------------------:|
+|         1 |                  628 MB |                  168 MB |
+|         4 |                  2.5 GB |                  168 MB |
+|         8 |                  5.0 GB |                  168 MB |
+
+### Comparison with standard tools
+
+This benchmark compares both access speed and memory usage. Four reader processes ran concurrently. Each attached to the dataset, performed 100,000 random `d[k]["name"]` lookups, and then iterated over all records.
+
+**Environment:** Linux x86_64, 4 cores, Python 3.13.  
+Script: [bench/compare.py](https://github.com/Aleksandrln/shmobj/blob/master/bench/compare.py).
+
+| Approach | Reader attach | `d[k]["name"]` | Full iteration | Total memory |
+|---|--:|--:|--:|--:|
+| `shmobj` | ~50 µs | 1.3 µs | `iter_values()` 0.26 s, `values()` 0.74 s | 210 MB |
+| `pickle` + `multiprocessing.shared_memory` | 2.3 s | 1.0 µs | 0.07 s | 2.6 GB |
+| `multiprocessing.Manager().dict()` | 1 ms | 290 µs | ≈ 5 min ¹ | 690 MB |
+| `fork` + `gc.freeze()` | — ² | 3.3 µs ³ | 0.3–0.4 s | 1.9 GB |
+
+Total memory includes the storage itself (the shared-memory segment, `pickle` buffer, `Manager` server process, or parent process in the `fork` approach) as well as the readers' own memory, including approximately 10 MB per Python interpreter.
+
+**Notes:**
+
+- ¹ Estimated from 5,000 lookups. Each `d[k]` requires an IPC request to the server process, followed by deserialization of the reply.
+- ² The parent process loads the data before `fork`. Without a common parent process, this approach cannot share the dataset.
+- ³ Initial accesses trigger copy-on-write page duplication: about 330 MB per reader.
+
+The trade-off for storing a single shared copy is slower access: a key lookup is 3–6 times slower than in a regular `dict`, while a full iteration is about 4 times slower with `iter_values()` and 11 times slower with `values()`.
+
+For workloads with frequent access, use the faster methods: `get_many()`, `iter_values()`, `iter_items()`, and `materialize()`.
+
+More: [Access speed](https://github.com/Aleksandrln/shmobj/blob/master/doc/usage.md#скорость-доступа),
+[comparison with alternatives](https://github.com/Aleksandrln/shmobj/blob/master/doc/comparison.md),
+[measurements](https://github.com/Aleksandrln/shmobj/blob/master/doc/status.md#замеры).
 
 The detailed documentation in `doc/` is currently available in Russian.
 
@@ -43,7 +70,7 @@ pip install shmobj
 Prebuilt wheels are available for:
 
 - **Python:** CPython 3.11 and later;
-- **Linux:** x86_64, aarch64;
+- **Linux:** x86_64, aarch64 — glibc (manylinux) and musl (musllinux, Alpine);
 - **Windows:** x64;
 - **macOS:** arm64, x86_64 — partial support ([limitations](#limitations)).
 

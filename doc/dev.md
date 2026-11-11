@@ -55,6 +55,7 @@ pytest                            # tests/: golden, сверка с эталон
 | `python/shmobj` | Пакет: реэкспорт `_core`, регистрация в ABC, `create`/`attach` поверх `SharedMemory` (`_shm.py`), канал снимков (`channel/`), последний снимок по имени (`latest.py`), `.pyi` |
 | `tests/` | pytest; `conftest.py` добавляет `reference/` и `golden/` в `sys.path` |
 | `examples/` | Рабочие скрипты с обвязкой ([examples/README.md](../examples/README.md)) — та же механика, что в примерах README; их прогоняет `tests/test_examples.py` |
+| `bench/` | `compare.py` — сравнение со стандартными средствами (таблица в README): `python bench/compare.py [--records N] [--readers N]`, только Linux, нужна release-сборка |
 | `reference/`, `golden/` | Эталон формата на Python (`pytest reference/`) и эталонные сегменты с входными данными (`cases.py`) |
 | `doc/` | Руководство, справочник API, формат, архитектура, сборка, разработка, состояние |
 
@@ -84,7 +85,8 @@ pytest                            # tests/: golden, сверка с эталон
 | Job | Когда | Что |
 |---|---|---|
 | `rust`, `python` | тег `v*`, ручной запуск | fmt, clippy, тесты ядра; эталон и pytest на Linux, Windows, macOS × Python 3.11, 3.14 |
-| `wheels`, `sdist` | тег `v*`, ручной запуск | Колёса abi3 cp311: Linux x86_64/aarch64, Windows x64, macOS arm64/x86_64 (x86_64 — кросс-сборка на arm-раннере); sdist |
+| `wheels`, `sdist` | тег `v*`, ручной запуск | Колёса abi3 cp311: Linux x86_64/aarch64 (manylinux, musllinux_1_2), Windows x64, macOS arm64/x86_64 (x86_64 — кросс-сборка на arm-раннере); sdist |
+| `musl` | после `wheels` | Колёса musllinux: эталон и pytest в `python:3.11-alpine`, `python:3.14-alpine` на x86_64 и aarch64 (`docker run`); `release`, `pypi`, `testpypi` ждут его |
 | `version` | тег `v*`, ручной запуск с `publish=pypi` | Запуск от тега, коммит тега входит в `master`, версия тега = `version` в `crates/shmobj-py/Cargo.toml` |
 | `release` | push тега `v*`, после `version`, `wheels`, `sdist` | Файлы в GitHub Release; релиз, созданный в интерфейсе вместе с тегом, дополняется |
 | `pypi` | ручной запуск от тега `v*` с `publish=pypi`, после `version`, `wheels`, `sdist` | Выкладка на pypi.org, окружение `pypi` |
