@@ -2,12 +2,19 @@
 
 **English** | [Русский](https://github.com/Aleksandrln/shmobj/blob/master/README.md)
 
+[![PyPI](https://img.shields.io/pypi/v/shmobj)](https://pypi.org/project/shmobj/)
+[![Python](https://img.shields.io/pypi/pyversions/shmobj)](https://pypi.org/project/shmobj/)
+
 Arbitrarily nested `dict`/`list`-like structures in shared memory (via `mmap`), accessible from multiple processes without
 copying or deserialization.
 
 `shmobj` provides the `FrozenDict` (`Mapping`) and `FrozenList` (`Sequence`) proxy objects for accessing data in shared
 memory. The data is stored in memory only once. All processes access the same shared structure, and Python objects are
 created only for the values that are actually accessed.
+
+`shmobj` also provides mechanisms for sharing up-to-date data snapshots between processes:
+[`shmobj.latest`](#shmobjlatest) returns the latest snapshot published under a given name, and
+[`shmobj.channel`](#pubsub-shmobjchannel) delivers new snapshots to subscribers (pub/sub).
 
 ## Why shmobj?
 
@@ -16,8 +23,15 @@ has its own memory space, so data loaded into each process is duplicated. For ex
 
 `shmobj` solves this by storing the data once in shared memory. All processes access the same structure without copying or deserializing it.
 
-Changes made to one process's local memory are not visible to other processes. `shmobj` provides mechanisms for sharing updates as well:
-[`shmobj.latest`](#shmobjlatest) and [`shmobj.channel`](#pubsub-shmobjchannel).
+But sharing data is only part of the problem: other processes also need to be notified when that data changes. Unlike
+threads, processes do not share the same address space, so they cannot directly see changes in each other's memory.
+Updates are typically sent through mechanisms such as `multiprocessing.Queue`, where data is serialized by the sending
+process, transferred, and deserialized into a separate copy in the receiving process.
+
+`shmobj` handles this too: the writer publishes a new snapshot once, and readers access it without copying — by name via
+[`shmobj.latest`](#shmobjlatest) or by subscription via [`shmobj.channel`](#pubsub-shmobjchannel).
+
+The measurements below refer to the shared dataset.
 
 ### Memory usage
 

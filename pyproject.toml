@@ -6,9 +6,20 @@ build-backend = "maturin"
 name = "shmobj"
 requires-python = ">=3.11"
 dynamic = ["version"]
-description = "Zero-copy shared-memory dict/list structures for Python multiprocessing (Rust core)"
+description = "Zero-copy shared-memory dict/list structures for Python multiprocessing: share data and publish updates between processes (pub/sub, asyncio; Rust core)"
 readme = "README.en.md"
-keywords = ["shared-memory", "multiprocessing", "ipc", "mmap", "zero-copy"]
+keywords = [
+    "shared-memory",
+    "multiprocessing",
+    "ipc",
+    "inter-process-communication",
+    "pubsub",
+    "message-passing",
+    "asyncio",
+    "mmap",
+    "zero-copy",
+    "serialization",
+]
 license = "MIT OR Apache-2.0"
 license-files = ["LICENSE-MIT", "LICENSE-APACHE"]
 authors = [{ name = "AleksandrLn" }]
@@ -20,6 +31,10 @@ classifiers = [
     "Operating System :: MacOS",
     "Programming Language :: Python :: 3",
     "Programming Language :: Python :: 3 :: Only",
+    "Programming Language :: Python :: 3.11",
+    "Programming Language :: Python :: 3.12",
+    "Programming Language :: Python :: 3.13",
+    "Programming Language :: Python :: 3.14",
     "Programming Language :: Python :: Implementation :: CPython",
     "Programming Language :: Rust",
     "Topic :: Software Development :: Libraries",
