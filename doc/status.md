@@ -24,6 +24,15 @@ Alpine (musl) — только тесты CI (`musl` в `ci.yml`), x86_64 и aar
   операций (`benches/`, `tests/bench_*.py`), полного перебора повреждений golden (≥ 10⁵ вариантов).
 - Целей по скорости (таблица ниже).
 
+## Известные дефекты
+
+- `dumps_into` теряет один `int` на вызов: размер сегмента больше 256 (такие числа не кешируются), это 28 байт на
+  64-битной сборке. Отсюда же утечка в `create`, `channel.Publisher.publish` и `latest.Writer.put`. Причина — в PyO3
+  0.30.1, и на `main` так же: `PySlice::new` передаёт в `PySlice_New` новые ссылки из `PyLong_FromSsize_t`, а
+  `PySlice_New` их не забирает. В PyO3 не исправлено, ждём исправления там. Обход в `dumps_into`
+  (`crates/shmobj-py/src/lib.rs`) — создавать срез вызовом типа: `py.get_type::<PySlice>().call1((0, size))`.
+  `dumps` и чтение (`loads`, `attach`, прокси, `materialize`) не затронуты.
+
 ## Тесты
 
 - Ядро (`crates/shmobj-core/tests/core.rs`): golden, все однобайтовые изменения `records.bin` без паник.
