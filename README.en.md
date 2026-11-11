@@ -10,7 +10,8 @@ memory. The data is stored in memory only once. All processes access the same sh
 created only for the values that are actually accessed.
 
 ## Why shmobj?
-CPU-bound Python workloads often use multiple processes to run computations in parallel and work around the GIL. Each process 
+
+CPU-bound Python workloads often use multiple processes to run computations in parallel and work around the GIL. Each process
 has its own memory space, so data loaded into each process is duplicated. For example, an 8-process workload using a 100 MB lookup table can consume around 800 MB.
 
 `shmobj` solves this by storing the data once in shared memory. All processes access the same structure without copying or deserializing it.
