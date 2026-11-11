@@ -55,6 +55,7 @@ pytest                            # tests/: golden, сверка с эталон
 | `python/shmobj` | Пакет: реэкспорт `_core`, регистрация в ABC, `create`/`attach` поверх `SharedMemory` (`_shm.py`), канал снимков (`channel/`), последний снимок по имени (`latest.py`), `.pyi` |
 | `tests/` | pytest; `conftest.py` добавляет `reference/` и `golden/` в `sys.path` |
 | `examples/` | Рабочие скрипты с обвязкой ([examples/README.md](../examples/README.md)) — та же механика, что в примерах README; их прогоняет `tests/test_examples.py` |
+| `bench/` | `compare.py` — сравнение со стандартными средствами (таблица в README): `python bench/compare.py [--records N] [--readers N]`, только Linux, нужна release-сборка |
 | `reference/`, `golden/` | Эталон формата на Python (`pytest reference/`) и эталонные сегменты с входными данными (`cases.py`) |
 | `doc/` | Руководство, справочник API, формат, архитектура, сборка, разработка, состояние |
 

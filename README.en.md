@@ -24,13 +24,33 @@ process iterated over every record.
 |         4 |                        2.5 GB |                        168 MB |
 |         8 |                        5.0 GB |                        168 MB |
 
-More measurements: [doc/status.md](https://github.com/Aleksandrln/shmobj/blob/master/doc/status.md).
+### Comparison with standard tools
 
-Attaching to an existing segment takes about 50 µs, compared with about 1.5 s for `pickle.loads` on the same dataset.
-The trade-off is that key lookups are 3–6 times slower than in a regular `dict`. `get_many()`, `iter_values()`,
-`iter_items()` and `materialize()` help speed up sequential reads and repeated access.
+Same dataset; 4 reader processes run concurrently: each attaches, reads 100,000 random `d[k]["name"]` and iterates
+over every record. Linux x86_64, 4 cores, Python 3.13, [bench/compare.py](https://github.com/Aleksandrln/shmobj/blob/master/bench/compare.py).
 
-More on performance and access patterns: [Access speed](https://github.com/Aleksandrln/shmobj/blob/master/doc/usage.md#скорость-доступа).
+| Approach                                   | Reader attach | `d[k]["name"]` |              Iterate over all records | Total memory |
+|--------------------------------------------|--------------:|---------------:|--------------------------------------:|-------------:|
+| `shmobj`                                   |        ~50 µs |         1.3 µs | `iter_values()` 0.26 s, `values()` 0.74 s |       210 MB |
+| `pickle` + `multiprocessing.shared_memory` |         2.3 s |         1.0 µs |                                0.07 s |       2.6 GB |
+| `multiprocessing.Manager().dict()`         |          1 ms |         290 µs |                           ≈ 5 min ¹ |       690 MB |
+| `fork` + `gc.freeze()`                     |           — ² |       3.3 µs ³ |                            0.3–0.4 s |       1.9 GB |
+
+Memory is the storage (segment, `pickle` buffer, `Manager` server process or `fork` parent) plus the readers' own
+memory, including about 10 MB per interpreter.
+
+- ¹ Estimated from 5,000 lookups: each `d[k]` is a request to the server process over a socket, with a pickled reply.
+- ² The parent loads the data before `fork`; processes without a common parent cannot share data this way.
+- ³ The first accesses copy the parent's pages (copy-on-write): about 330 MB per reader.
+
+`shmobj` attaches in microseconds and keeps a single copy for everyone. The trade-off: a key lookup itself is 3–6 times
+slower than in a regular `dict`, and iterating over all records is about 4 times slower with `iter_values()` (a Rust
+iterator) and 11 times slower with `values()`. `get_many()`, `iter_values()`, `iter_items()` and `materialize()` help
+with repeated access.
+
+More: [Access speed](https://github.com/Aleksandrln/shmobj/blob/master/doc/usage.md#скорость-доступа),
+[comparison with alternatives](https://github.com/Aleksandrln/shmobj/blob/master/doc/comparison.md),
+[measurements](https://github.com/Aleksandrln/shmobj/blob/master/doc/status.md#замеры).
 
 The detailed documentation in `doc/` is currently available in Russian.
 
