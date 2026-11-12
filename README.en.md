@@ -98,12 +98,12 @@ pip install ./shmobj-<version>-cp311-abi3-<platform>.whl
 
 ## Main use cases
 
-| Use case                                      | API                     | Example                                                                                           |
-|-----------------------------------------------|-------------------------|---------------------------------------------------------------------------------------------------|
-| Share one dataset across multiple processes   | `create()` / `attach()` | [shared_pool.py](https://github.com/Aleksandrln/shmobj/blob/master/examples/shared_pool.py)       |
-| Let readers access the latest published snapshot | `shmobj.latest`      | [latest_pubsub.py](https://github.com/Aleksandrln/shmobj/blob/master/examples/latest_pubsub.py)   |
-| Receive new snapshots without polling         | `shmobj.channel`        | [channel_pubsub.py](https://github.com/Aleksandrln/shmobj/blob/master/examples/channel_pubsub.py) |
-| Read data from a file or `bytes`              | `dumps()` / `loads()`   | [file_mmap.py](https://github.com/Aleksandrln/shmobj/blob/master/examples/file_mmap.py)           |
+| Use case                                         | API                                            | Example                                                                                           |
+|--------------------------------------------------|------------------------------------------------|---------------------------------------------------------------------------------------------------|
+| Share one dataset across multiple processes      | [`create()` / `attach()`](#shared-dataset)     | [shared_pool.py](https://github.com/Aleksandrln/shmobj/blob/master/examples/shared_pool.py)       |
+| Let readers access the latest published snapshot | [`shmobj.latest`](#shmobjlatest)               | [latest_pubsub.py](https://github.com/Aleksandrln/shmobj/blob/master/examples/latest_pubsub.py)   |
+| Receive new snapshots without polling            | [`shmobj.channel`](#pubsub-shmobjchannel)      | [channel_pubsub.py](https://github.com/Aleksandrln/shmobj/blob/master/examples/channel_pubsub.py) |
+| Read data from a file or `bytes`                 | [`dumps()` / `loads()`](#files-bytes-and-mmap) | [file_mmap.py](https://github.com/Aleksandrln/shmobj/blob/master/examples/file_mmap.py)           |
 
 All examples are in the [examples](https://github.com/Aleksandrln/shmobj/blob/master/examples/README.md) directory.
 Install [`shmobj`](#installation) before running them.
