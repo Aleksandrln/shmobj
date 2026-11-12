@@ -98,12 +98,12 @@ pip install ./shmobj-<version>-cp311-abi3-<platform>.whl
 
 ## Основные сценарии
 
-| Сценарий                                        | API                     | Пример                                                                                            |
-|-------------------------------------------------|-------------------------|---------------------------------------------------------------------------------------------------|
-| Один набор данных для нескольких процессов      | `create()` / `attach()` | [shared_pool.py](https://github.com/Aleksandrln/shmobj/blob/master/examples/shared_pool.py)       |
-| Читателям нужен последний опубликованный снимок | `shmobj.latest`         | [latest_pubsub.py](https://github.com/Aleksandrln/shmobj/blob/master/examples/latest_pubsub.py)   |
-| Подписка на новые снимки без постоянного опроса | `shmobj.channel`        | [channel_pubsub.py](https://github.com/Aleksandrln/shmobj/blob/master/examples/channel_pubsub.py) |
-| Чтение данных из файла или `bytes`              | `dumps()` / `loads()`   | [file_mmap.py](https://github.com/Aleksandrln/shmobj/blob/master/examples/file_mmap.py)           |
+| Сценарий                                        | API                                            | Пример                                                                                            |
+|-------------------------------------------------|------------------------------------------------|---------------------------------------------------------------------------------------------------|
+| Один набор данных для нескольких процессов      | [`create()` / `attach()`](#общий-набор-данных) | [shared_pool.py](https://github.com/Aleksandrln/shmobj/blob/master/examples/shared_pool.py)       |
+| Читателям нужен последний опубликованный снимок | [`shmobj.latest`](#shmobjlatest)               | [latest_pubsub.py](https://github.com/Aleksandrln/shmobj/blob/master/examples/latest_pubsub.py)   |
+| Подписка на новые снимки без постоянного опроса | [`shmobj.channel`](#pubsub-shmobjchannel)      | [channel_pubsub.py](https://github.com/Aleksandrln/shmobj/blob/master/examples/channel_pubsub.py) |
+| Чтение данных из файла или `bytes`              | [`dumps()` / `loads()`](#файл-bytes-и-mmap)    | [file_mmap.py](https://github.com/Aleksandrln/shmobj/blob/master/examples/file_mmap.py)           |
 
 Все примеры находятся в каталоге [examples](https://github.com/Aleksandrln/shmobj/blob/master/examples/README.md).  
 Внимание! Перед запуском примеров нужно [установить `shmobj`](#установка).
